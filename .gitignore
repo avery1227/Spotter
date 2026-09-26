@@ -28,3 +28,7 @@ data/offline/*.jsonl
 pelitest/
 config.yaml.bak
 *.bak
+
+# Site data packaged for upload to a server. Contains the camera position.
+pelican-upload/
+spotter-pelican-upload.zip
