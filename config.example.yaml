@@ -37,6 +37,12 @@ stream:
   # Abort a read and reconnect if no frame arrives within this window.
   read_timeout_s: 20.0
 
+  # YouTube sometimes keeps serving the playlist while it stops adding segments.
+  # Log a warning after stall_warn_s with no new segment, and fetch a fresh
+  # stream URL after stall_reresolve_s in case the old one went stale.
+  stall_warn_s: 10.0
+  stall_reresolve_s: 30.0
+
   # ---- Wall-clock timing ----------------------------------------------------
   # Frame timestamp = segment EXT-X-PROGRAM-DATE-TIME
   #                 + frame offset within the segment

@@ -67,6 +67,11 @@ class HLSReader:
         self.reresolve_interval_s = float(cfg.get("stream.reresolve_interval_s", 10800.0))
         self.read_timeout_s = float(cfg.get("stream.read_timeout_s", 20.0))
         self.playlist_poll_s = float(cfg.get("stream.pdt.playlist_poll_s", 4.0))
+        # The playlist can keep answering 200 while the publisher stops adding
+        # segments. Say so after stall_warn_s, and fetch a fresh URL after
+        # stall_reresolve_s in case this one has quietly gone stale.
+        self.stall_warn_s = float(cfg.get("stream.stall_warn_s", 10.0))
+        self.stall_reresolve_s = float(cfg.get("stream.stall_reresolve_s", 30.0))
 
         self._backoff = Backoff.from_config(cfg.sub("stream.backoff"))
         self._session = requests.Session()
@@ -82,6 +87,8 @@ class HLSReader:
         self.last_segment_at: float = 0.0
         self.connected: bool = False
         self.reconnects: int = 0
+        self.stalls: int = 0
+        self._stalled_since: Optional[float] = None
 
     # -- lifecycle ----------------------------------------------------------
     def start(self) -> "HLSReader":
@@ -214,6 +221,8 @@ class HLSReader:
 
             fresh, gap = self._pick_new_segments(playlist)
             if not fresh:
+                if self._check_stall(playlist):
+                    return  # bounce back out to _run, which re-resolves
                 # Nothing new yet; poll again at roughly half the target duration.
                 next_poll = time.monotonic() + min(self.playlist_poll_s,
                                                    playlist.target_duration / 2)
@@ -237,9 +246,47 @@ class HLSReader:
                 self._put(payload)
                 self._last_sequence = segment.sequence
                 self.last_segment_at = time.monotonic()
+                if self._stalled_since is not None:
+                    log.info("segments resumed", extra={
+                        "stalled_for_s": round(self.last_segment_at
+                                               - self._stalled_since, 1),
+                        "sequence": segment.sequence})
+                    self._stalled_since = None
 
             next_poll = time.monotonic() + min(self.playlist_poll_s,
                                                playlist.target_duration / 2)
+
+    def _check_stall(self, playlist: MediaPlaylist) -> bool:
+        """Log a publisher stall; return True when it is time to re-resolve."""
+        if not self.last_segment_at:
+            return False
+        now = time.monotonic()
+        idle = now - self.last_segment_at
+        if idle < self.stall_warn_s:
+            return False
+
+        if self._stalled_since is None:
+            self._stalled_since = self.last_segment_at
+            self.stalls += 1
+            newest = playlist.segments[-1].sequence if playlist.segments else None
+            log.warning("no new segments from the source", extra={
+                "idle_s": round(idle, 1),
+                "last_sequence": self._last_sequence,
+                "playlist_newest": newest,
+                "target_duration_s": playlist.target_duration,
+                "endlist": playlist.endlist,
+            })
+
+        # Measure from whichever is later, the last segment or the last
+        # resolve, so a stall that outlives one re-resolve does not trigger
+        # another on every poll.
+        since_resolve = self._resolved.age_s() if self._resolved else idle
+        if min(idle, since_resolve) >= self.stall_reresolve_s:
+            log.warning("source still stalled; re-resolving the stream URL",
+                        extra={"idle_s": round(idle, 1)})
+            self._resolved = None
+            return True
+        return False
 
     def _put(self, payload: SegmentPayload) -> None:
         """Enqueue a segment, dropping the oldest if the consumer is starved.
@@ -266,6 +313,8 @@ class HLSReader:
             "reconnects": self.reconnects,
             "queue": self.queue.qsize(),
             "last_segment_age_s": round(age, 2) if age is not None else None,
+            "stalled": self._stalled_since is not None,
+            "stalls": self.stalls,
             "playlist_expires_in_s": (
                 round(self._resolved.seconds_until_expiry())
                 if self._resolved and self._resolved.expires_at else None),

@@ -94,14 +94,8 @@ class OverlayRenderer:
         """Draw onto ``image`` in place. ``image`` must be (H, W, 4) BGRA uint8."""
         status = status or OverlayStatus()
         height, width = image.shape[:2]
-
-        info = skia.ImageInfo.Make(width, height, skia.kBGRA_8888_ColorType,
-                                   skia.kUnpremul_AlphaType)
-        surface = skia.Surface.MakeRasterDirect(info, memoryview(image.reshape(-1)),
-                                                width * 4)
+        surface = self._wrap(image)
         if surface is None:
-            log.error("could not wrap frame buffer for drawing",
-                      extra={"shape": list(image.shape)})
             return
         canvas = surface.getCanvas()
 
@@ -123,6 +117,29 @@ class OverlayRenderer:
 
         self._draw_corner(canvas, width, height, frame_time, status)
         self._draw_badges(canvas, width, height, status)
+
+    def render_badges(self, image: np.ndarray, status: OverlayStatus) -> None:
+        """Draw only the status badges, onto a frame that is already composited.
+
+        Used while the source is stalled: the last frame is held on screen and
+        needs the RECONNECTING badge (and its counter) redrawn on top of it.
+        """
+        height, width = image.shape[:2]
+        surface = self._wrap(image)
+        if surface is not None:
+            self._draw_badges(surface.getCanvas(), width, height, status)
+
+    @staticmethod
+    def _wrap(image: np.ndarray):
+        height, width = image.shape[:2]
+        info = skia.ImageInfo.Make(width, height, skia.kBGRA_8888_ColorType,
+                                   skia.kUnpremul_AlphaType)
+        surface = skia.Surface.MakeRasterDirect(info, memoryview(image.reshape(-1)),
+                                                width * 4)
+        if surface is None:
+            log.error("could not wrap frame buffer for drawing",
+                      extra={"shape": list(image.shape)})
+        return surface
 
     # -- targets ------------------------------------------------------------
     def _draw_targets(self, canvas, targets, width, height, now, dt) -> None:

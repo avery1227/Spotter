@@ -93,6 +93,7 @@ class Pipeline:
         self._decoder: Optional[SegmentDecoder] = None
         self._player = None
         self._feeder = None
+        self._stall_base = None   # clean copy of the held frame during a stall
         self._last_status_log = 0.0
         self._hide_labels_on_drift = bool(cfg.get("drift.hide_labels_on_drift", False))
         self._audio_prime: list[bytes] = []
@@ -172,8 +173,9 @@ class Pipeline:
             if self.stop_event.is_set():
                 return
             if payload is None:
-                # Idle tick: nothing decoded, but the writer thread is still
-                # emitting repeated frames, so just let the loop breathe.
+                # Idle tick: nothing decoded. The writer thread keeps emitting
+                # the held frame; keep its badge and the web preview current.
+                self._on_input_idle()
                 continue
             try:
                 for event in self._decoder.decode(payload):
@@ -330,8 +332,43 @@ class Pipeline:
             self.shutdown()
         return exit_code
 
+    def _on_input_idle(self) -> None:
+        """Redraw the held frame with a live RECONNECTING badge during a stall.
+
+        Without this the badge never appears: it is drawn by _process_frame,
+        which is exactly what stops running when the source stalls. The web
+        preview would also freeze, and the wall display would keep tearing
+        down its stream thinking the connection had died.
+        """
+        if self.output is None or not self.output.should_show_badge():
+            return
+        if self._stall_base is None:
+            held = self.output.held_frame()
+            if held is None:
+                return
+            self._stall_base = held.copy()   # clean, badge-free original
+
+        frame = self._stall_base.copy()
+        self.renderer.render_badges(frame, OverlayStatus(
+            reconnecting=True,
+            reconnecting_since_s=self.output.starved_for_s(),
+            drift_flagged=self.drift.flagged,
+            drift_shift_px=(self.drift.last_report.median_shift_px
+                            if self.drift.last_report else None),
+            labels_hidden=self.drift.flagged and self._hide_labels_on_drift,
+        ))
+        self.output.hold_frame(frame)
+        if self.frame_hub is not None:
+            last = self.stats.last_frame_time
+            self.frame_hub.publish(frame, {
+                "frame_time": last.isoformat() if last else None,
+                "visible": 0,
+                "stalled": True,
+            })
+
     def _process_frame(self, event: VideoFrameEvent) -> None:
         started = time.perf_counter()
+        self._stall_base = None
 
         if self._feeder is not None:
             self._feeder.advance_to(event.wall_time)

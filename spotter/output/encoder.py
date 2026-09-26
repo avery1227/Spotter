@@ -513,6 +513,18 @@ class RTMPOutput:
     def should_show_badge(self) -> bool:
         return self.starved_for_s() >= self.badge_after_s
 
+    def held_frame(self) -> Optional[np.ndarray]:
+        """The frame being repeated while starved (the last one written)."""
+        return self._last_frame
+
+    def hold_frame(self, frame: np.ndarray) -> None:
+        """Replace the frame repeated while starved, without ending the stall.
+
+        submit() would count as fresh input and reset the stall clock; this only
+        swaps what gets repeated, so the badge can be redrawn with its counter.
+        """
+        self._last_frame = frame
+
     def status(self) -> dict:
         return {
             "encoder": self.caps.chosen,
