@@ -1,0 +1,15 @@
+# Shell scripts and the entrypoint MUST be LF: a CRLF shebang makes the kernel
+# look for "/bin/bash\r" and the container dies with
+# "exec /entrypoint.sh failed: No such file or directory".
+*.sh            text eol=lf
+entrypoint.sh   text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# Keep everything else normalised in the repo, checked out natively.
+* text=auto
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.ts  binary

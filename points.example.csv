@@ -1,0 +1,13 @@
+name,px,py,lat,lon,elev_m,enabled,note
+far_shore_light_E,581.07,309.73,41.04436076,-72.37940734,9.00,1,synthetic example
+far_shore_stack,853.48,305.77,41.04522774,-72.43664551,12.00,1,synthetic example
+far_shore_light_W,1117.73,304.43,41.05386517,-72.48973932,6.00,1,synthetic example
+far_shore_tower,1392.97,303.40,41.03353725,-72.54355973,15.00,1,synthetic example
+channel_buoy_R2,349.24,309.29,41.10601259,-72.37470339,4.00,1,synthetic example
+channel_buoy_G5,1631.29,303.06,41.11402399,-72.55877426,3.00,1,synthetic example
+jetty_tip,774.10,355.04,41.26618500,-72.49840441,2.00,1,synthetic example
+flagpole_base,1224.09,375.91,41.26749826,-72.49980994,3.50,1,synthetic example
+seawall_corner,357.68,437.37,41.26866824,-72.49880658,4.00,1,synthetic example
+dock_piling,1753.74,368.27,41.26696111,-72.50108941,2.50,1,synthetic example
+gazebo_peak,958.10,341.64,41.26814377,-72.49938607,11.00,1,synthetic example
+roof_ridge_W,1506.45,353.62,41.26798836,-72.50022271,9.00,1,synthetic example

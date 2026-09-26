@@ -1,0 +1,34 @@
+# Core numerics and geodesy
+numpy>=1.26,<3
+scipy>=1.11
+pymap3d>=3.0
+
+# Video ingest / decode
+av>=12,<19
+streamlink>=6.7
+yt-dlp>=2024.4.9
+requests>=2.31
+
+# Calibration tooling and drift template matching.
+# NOT the headless build: `calibrate.py click` opens a window, and
+# opencv-python-headless reports "The function is not implemented" for
+# namedWindow/imshow. The Dockerfile swaps in the headless build, since the
+# running pipeline only uses cv2 for template matching and never shows a window.
+opencv-python>=4.9
+
+# Overlay rendering
+skia-python>=87.5
+
+# Web UI (calibration by clicking, and the live monitor).
+# waitress serves it: pure Python, cross-platform, and it streams MJPEG
+# incrementally, which the Flask development server is not meant to do.
+Flask>=3.0
+waitress>=3.0
+
+# Config and feeds
+PyYAML>=6.0
+websockets>=12.0
+
+# IANA timezone database (needed for render.corner.timezone on platforms
+# without a system tzdata, notably Windows and slim containers)
+tzdata>=2024.1

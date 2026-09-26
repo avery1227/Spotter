@@ -1,0 +1,30 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Site-specific: copied from config.example.yaml on first use, then edited.
+# Keeping it out of git stops a camera's surveyed position being published.
+config.yaml
+
+# Site-specific outputs, not source
+state/
+calibration.json
+calibration.report.json
+points.csv
+
+# Generated images. docs/ holds the documented example and is tracked.
+calib_frame.png
+calib_check.png
+render_test.png
+render_badges.png
+delay_sweep.png
+
+# Offline fixtures are recorded per site, not committed
+data/offline/*.mp4
+data/offline/*.jsonl
+
+# Local scratch
+pelitest/
+config.yaml.bak
+*.bak

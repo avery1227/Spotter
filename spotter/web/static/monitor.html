@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotter · monitor</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header>
+  <h1>Spotter</h1>
+  <nav>
+    <a href="/">Calibrate</a>
+    <a href="/monitor" class="active">Monitor</a>
+    <a href="/view" target="_blank" title="full-screen output, for a wall display">Full screen ↗</a>
+  </nav>
+  <span id="headerInfo" class="muted"></span>
+</header>
+
+<main class="monitor-layout">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Composited output</h2>
+      <div class="controls">
+        <label class="check"><input type="checkbox" id="liveToggle" checked> live</label>
+        <select id="quality" class="btn small">
+          <option value="640">640 px</option>
+          <option value="960" selected>960 px</option>
+          <option value="1280">1280 px</option>
+          <option value="1920">full</option>
+        </select>
+        <button class="btn small" id="snapBtn">Snapshot</button>
+      </div>
+    </div>
+    <img id="liveImg" alt="live output">
+    <p id="liveHint" class="muted small"></p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Status</h2></div>
+    <dl class="stat-grid" id="statusGrid"></dl>
+    <div class="panel-head"><h2>Cull breakdown</h2></div>
+    <dl class="stat-grid" id="cullGrid"></dl>
+    <div class="panel-head"><h2>Sources</h2></div>
+    <div id="sources" class="small"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="/static/monitor.js"></script>
+</body>
+</html>

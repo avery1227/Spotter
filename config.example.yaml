@@ -1,0 +1,410 @@
+# =============================================================================
+# Spotter - AR overlay for a fixed shoreline camera
+# =============================================================================
+# Every knob the pipeline uses lives here. Paths are relative to the repo root
+# unless absolute. Anything set to `null` means "auto-detect from the source".
+
+logging:
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  format: json         # json | console
+  # Per-module overrides, e.g. {spotter.ingest.decoder: DEBUG}
+  levels: {}
+
+# -----------------------------------------------------------------------------
+# 1. Ingest
+# -----------------------------------------------------------------------------
+stream:
+  url: "https://www.youtube.com/watch?v=OMTZRs4ImPc"
+
+  # How to turn the watch URL into a playable HLS URL.
+  #   streamlink : uses the streamlink Python API (preferred, handles YT quirks)
+  #   yt_dlp     : uses yt-dlp's extractor
+  resolver: streamlink
+  quality: best                 # streamlink quality string / yt-dlp format pref
+  resolver_timeout_s: 60
+
+  # Proactively re-resolve the manifest before the signed URL expires.
+  # YouTube live URLs are typically good for a few hours; refresh well before.
+  reresolve_interval_s: 10800
+
+  # Reconnect backoff when the stream drops or the manifest 403s.
+  backoff:
+    initial_s: 2.0
+    max_s: 60.0
+    factor: 2.0
+    jitter: 0.25                # +/- fraction applied to each sleep
+
+  # Abort a read and reconnect if no frame arrives within this window.
+  read_timeout_s: 20.0
+
+  # ---- Wall-clock timing ----------------------------------------------------
+  # Frame timestamp = segment EXT-X-PROGRAM-DATE-TIME
+  #                 + frame offset within the segment
+  #                 - encoder_delay_s
+  #
+  # encoder_delay_s absorbs the camera owner's capture -> encode -> upload
+  # latency, which PDT does not account for. Tune by hand: see README section
+  # "Tuning encoder_delay_s". Larger values move label positions BACK in time.
+  encoder_delay_s: 12.0
+
+  # If PDT is missing or implausible, fall back to (now - assumed_latency_s).
+  pdt:
+    enabled: true
+    # Reject a PDT this far from local wall clock and fall back instead.
+    max_skew_s: 900.0
+    assumed_latency_s: 30.0
+    # Re-read the media playlist this often to keep the segment/PDT map fresh.
+    playlist_poll_s: 4.0
+
+video:
+  # null => inherit from the source stream.
+  width: null
+  height: null
+  fps: null
+  # Passing audio straight through avoids a re-encode and keeps A/V sync simple.
+  audio: passthrough           # passthrough | none
+
+# -----------------------------------------------------------------------------
+# 2. Camera / site
+# -----------------------------------------------------------------------------
+camera:
+  # Rough position - the calibration solver refines this within the priors
+  # configured under `solver` below. EDIT THESE before calibrating.
+  lat: 41.27
+  lon: -72.5
+  # Height of the lens above mean sea level, metres.
+  height_m: 15
+
+  # Effective-Earth-radius factor for atmospheric refraction. 7/6 is the
+  # standard optical/radio horizon approximation over water.
+  refraction_k: 1.1666666667
+
+calibration:
+  path: ./calibration.json
+  points: ./points.csv
+
+  solver:
+    # Soft priors keep the solved camera position near the surveyed one.
+    position_sigma_m: 75.0      # horizontal wander allowed (1 sigma)
+    height_sigma_m: 5  # vertical wander allowed (1 sigma)
+    lock_height: false          # true => solve with height fixed at camera.height_m
+    lock_position: false        # true => solve with lat/lon fixed
+    lock_roll: false
+    lock_distortion: false
+    # Robust loss keeps one mis-clicked point from dragging the whole fit.
+    loss: soft_l1
+    f_scale_px: 3.0
+    # Initial guess for focal length in pixels; null => derived from a 45 deg
+    # horizontal field of view at the calibration image width.
+    focal_px_init: null
+    max_nfev: 20000
+    # Warn when points are poorly distributed.
+    warn:
+      min_points: 6
+      # Fraction of image height within which points count as "on the horizon".
+      horizon_band_frac: 0.08
+      max_horizon_fraction: 0.85
+      # Warn if points span less than this fraction of the image width/height.
+      min_spread_x_frac: 0.35
+      min_spread_y_frac: 0.12
+      # Warn on a per-point reprojection error above this (pixels).
+      max_rms_px: 6.0
+      # Warn when a point lands this far off a fit built without it.
+      max_loo_delta_px: 12.0
+      # Warn when dropping one point improves the RMS of all the others by
+      # more than this fraction - that point is probably mis-entered.
+      outlier_rms_improvement_frac: 0.4
+
+# -----------------------------------------------------------------------------
+# 3. Track sources
+# -----------------------------------------------------------------------------
+# Bounding box used by sources that support server-side filtering.
+region:
+  lat_min: 40.85
+  lat_max: 41.45
+  lon_min: -73.75
+  lon_max: -71.85
+
+tracks:
+  # Discard a track whose newest report is older than this.
+  stale_timeout_s:
+    aircraft: 30.0
+    ship: 600.0
+
+  # How much position history to keep per track, for interpolation.
+  history_s: 900.0
+
+  motion:
+    # Aircraft: interpolate between reports, smooth lightly.
+    aircraft:
+      smoothing_tau_s: 0.6       # exponential smoothing constant; 0 = off
+      max_extrapolate_s: 8.0     # dead-reckon at most this far past last report
+      dead_reckon: true
+    # Ships: Class B transmits every 30s+, so dead reckoning matters.
+    ship:
+      smoothing_tau_s: 2.0
+      max_extrapolate_s: 180.0
+      dead_reckon: true
+
+  adsb:
+    enabled: true
+    sources:
+      - name: local-readsb
+        type: readsb            # readsb / dump1090 aircraft.json
+        url: "http://127.0.0.1:8080/data/aircraft.json"
+        poll_s: 1.0
+        timeout_s: 3.0
+      - name: adsb-fi
+        # Free community feed, readsb dialect. Measured as comfortable with a
+        # sustained 5s poll where adsb.lol is not, so it is the preferred
+        # fallback. Non-commercial use; identify yourself in the User-Agent.
+        type: adsb_fi
+        url: "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{radius_nm}"
+        radius_nm: 60
+        poll_s: 5.0
+        max_poll_s: 60.0
+        timeout_s: 8.0
+
+      - name: adsb-lol
+        type: adsb_lol          # public API fallback
+        url: "https://api.adsb.lol/v2/point/{lat}/{lon}/{radius_nm}"
+        radius_nm: 60
+        # Public endpoints throttle aggressively, and a 429 costs more than a
+        # slow poll. This is safe here: frames are rendered well behind real
+        # time, so even a 5s poll still brackets every frame with two real
+        # reports and the position is interpolated, not extrapolated.
+        # A local receiver is strongly preferred - set one up and this is
+        # only ever a fallback.
+        poll_s: 5.0
+        timeout_s: 8.0
+      - name: airplanes-live
+        type: airplanes_live
+        url: "https://api.airplanes.live/v2/point/{lat}/{lon}/{radius_nm}"
+        radius_nm: 60
+        poll_s: 5.0
+        max_poll_s: 60.0
+        timeout_s: 8.0
+        # This endpoint returns 403 without credentials; put yours here if you
+        # have one, otherwise leave it as a last-resort entry.
+        api_key: ""
+    # Demote the active source after this many consecutive failed polls.
+    failover_after_failures: 5
+    # Return to a higher-priority source once it answers this many times.
+    recover_after_successes: 3
+    # Walk back up to the preferred source this often, in seconds. Each
+    # recheck costs a request against whatever we are currently using, so keep
+    # it well clear of any fallback's rate limit.
+    recheck_primary_s: 600.0
+    # If a full pass over every source produced nothing, wait this long before
+    # trying again. Stops a tight retry loop hammering the public APIs.
+    all_failed_cooldown_s: 30.0
+
+  ais:
+    enabled: true
+    sources:
+      - name: local-ais-catcher-http
+        type: aiscatcher_http   # AIS-catcher JSON over HTTP
+        url: "http://127.0.0.1:8100/api/vessels.json"
+        poll_s: 2.0
+        timeout_s: 3.0
+      - name: local-nmea-udp
+        type: nmea_udp          # raw NMEA 0183 AIVDM/AIVDO over UDP
+        bind_host: "0.0.0.0"
+        bind_port: 10110
+        # A quiet AIS band is normal, so silence is not treated as failure.
+        # Log a warning after this long with nothing received.
+        idle_warn_s: 300.0
+      - name: aisstream
+        type: aisstream         # wss://stream.aisstream.io/v0/stream
+        url: "wss://stream.aisstream.io/v0/stream"
+        api_key: ""             # aisstream.io key, or set $AISSTREAM_API_KEY
+        reconnect_s: 5.0
+    failover_after_failures: 5
+    recover_after_successes: 3
+    recheck_primary_s: 600.0
+    all_failed_cooldown_s: 30.0
+
+# -----------------------------------------------------------------------------
+# 4. Projection / visibility
+# -----------------------------------------------------------------------------
+projection:
+  # Cull anything farther than this (metres). Long Island Sound is ~30 km wide.
+  max_range_m: 80000
+  min_range_m: 50
+  # Allow labels to sit this far outside the frame before culling, in pixels.
+  frame_margin_px: 80
+  # Hide surface targets that are geometrically below the horizon.
+  horizon_culling: true
+  # Assumed above-waterline height for a ship when nothing better is known.
+  default_ship_height_m: 12.0
+  # Extra slack before a target counts as hidden, metres of target height.
+  horizon_slack_m: 2.0
+
+# -----------------------------------------------------------------------------
+# 5. Overlay rendering
+# -----------------------------------------------------------------------------
+render:
+  backend: skia                # skia | cairo
+  font_family: "DejaVu Sans"
+  font_size: 15
+  font_size_small: 12
+
+  marker_radius: 5
+  leader_length: 46            # nominal leader-line length, pixels
+  label_padding: 6
+  label_corner_radius: 4
+  line_width: 1.6
+
+  # Declutter
+  max_labels: 28
+  label_gap_px: 4              # minimum pixel gap enforced between label boxes
+  declutter_iterations: 60
+  fade_in_s: 0.6
+  fade_out_s: 1.0
+  # Keep a label alive this long after its track goes stale, so it fades out.
+  linger_s: 2.0
+
+  # Colors are #RRGGBB or #RRGGBBAA.
+  colors:
+    aircraft: "#4FC3F7"
+    aircraft_military: "#FFB74D"
+    ship: "#7ED957"
+    ship_passenger: "#FFD54F"
+    ship_tanker: "#EF9A9A"
+    ship_cargo: "#80CBC4"
+    unknown: "#B0BEC5"
+    label_bg: "#0B1622CC"
+    label_fg: "#FFFFFF"
+    label_dim: "#B9C6D2"
+    leader: "#FFFFFFB0"
+    warning: "#FF5252"
+    debug_point: "#FF00FF"
+    debug_reproj: "#00E5FF"
+
+  corner:
+    show_clock: true
+    show_attribution: true
+    attribution: "AIS + ADS-B overlay"
+    # strftime format for the on-screen clock (frame time, not wall clock).
+    clock_format: "%Y-%m-%d %H:%M:%S %Z"
+    timezone: "America/New_York"
+
+  debug:
+    # Draw calibration landmarks: measured pixel vs reprojected pixel.
+    draw_landmarks: false
+    draw_horizon: false
+    # Annotate each label with range/bearing/elevation numbers.
+    verbose_labels: false
+
+# -----------------------------------------------------------------------------
+# 6. Output
+# -----------------------------------------------------------------------------
+output:
+  enabled: true
+  # rtmp://a.rtmp.youtube.com/live2/<stream-key>  or  rtmp://mediamtx:1935/live
+  rtmp_url: "rtmp://127.0.0.1:1935/live/spotter"
+
+  encoder: auto                # auto | libx264 | h264_nvenc | h264_qsv | h264_vaapi
+  preset: veryfast
+  bitrate: "6000k"
+  maxrate: "6500k"
+  bufsize: "12000k"
+  gop_seconds: 2
+  pix_fmt: yuv420p
+  # Extra raw ffmpeg args inserted before the output URL.
+  extra_args: []
+
+  # Render device for encoder: h264_vaapi.
+  vaapi_device: /dev/dri/renderD128
+
+  # Composited frames held between the render loop and the encoder. This is
+  # also the back-pressure that paces decoding, so keep it small: one 1080p
+  # BGRA frame is 8 MB.
+  frame_queue: 8
+
+  # Keep the output cadence steady when the input stalls.
+  stall:
+    repeat_last_frame: true
+    # Show a "RECONNECTING" badge once input has been dead this long.
+    badge_after_s: 3.0
+    # Exit (and let the supervisor restart us) after this long with no input.
+    give_up_after_s: 0.0        # 0 = never give up
+
+  # Also write the composited output to a local file. null = off.
+  local_copy: null
+
+# -----------------------------------------------------------------------------
+# 7. Drift detection
+# -----------------------------------------------------------------------------
+drift:
+  enabled: true
+  check_interval_s: 60.0
+  # Patch half-size saved at calibration time, pixels.
+  patch_half_size: 32
+  # Search radius around the expected location during template matching.
+  search_radius_px: 48
+  # Ignore a patch whose match confidence is below this.
+  min_confidence: 0.55
+  # Median shift (pixels) above which we declare drift.
+  warn_shift_px: 6.0
+  # Consecutive failing checks required before flagging (wave/haze noise).
+  consecutive_checks: 3
+  # Hide all labels while drift is flagged.
+  hide_labels_on_drift: false
+  patches_dir: ./state/drift_patches
+
+# -----------------------------------------------------------------------------
+# 8. Web UI
+# -----------------------------------------------------------------------------
+# Calibrate by clicking (no desktop OpenCV window needed) and watch the
+# composited output. `spotter web` serves it standalone; `spotter run --web`
+# also attaches the live monitor.
+web:
+  # Start the UI automatically whenever `spotter run` is used.
+  enabled: false
+  # Localhost by default: there is NO authentication. Only widen this to
+  # 0.0.0.0 on a network you trust.
+  host: "127.0.0.1"
+  port: 8090
+  # The still that the calibration page draws on.
+  calibration_frame: ./calib_frame.png
+  # Live preview. Deliberately well below the real frame rate: encoding 1080p
+  # JPEG at 30fps would cost more CPU than the H.264 encode itself.
+  preview_width: 960
+  preview_quality: 70
+  preview_fps: 6
+  # Server threads. Each open monitor/full-screen tab holds one for as long as
+  # it is watching, so keep headroom above the number of viewers you expect.
+  threads: 16
+
+  # Used when "I don't know the height" is ticked in the UI: where the solver
+  # starts, and how far it is free to move. A wide prior only works if some
+  # control points are near the camera - from 20 km away, raising the camera
+  # and tilting it down look almost identical.
+  unknown_height_guess_m: 12.0
+  unknown_height_sigma_m: 60.0
+  # The prior restored when a height IS known.
+  known_height_sigma_m: 5.0
+
+# -----------------------------------------------------------------------------
+# 9. Offline test mode
+# -----------------------------------------------------------------------------
+offline:
+  enabled: false
+  video: ./data/offline/clip.mp4
+  # JSONL of recorded track reports (see tools/record_tracks.py).
+  tracks: ./data/offline/tracks.jsonl
+  # Wall-clock time that frame 0 of the clip corresponds to (ISO 8601).
+  # null => take it from the first report in tracks.jsonl.
+  start_time: null
+  # 1.0 = real time, 0 = as fast as possible.
+  speed: 1.0
+  loop: true
+  # Also run the live track sources alongside the recording. Off by default:
+  # offline mode is meant to be reproducible, and live data is not.
+  live_tracks: false
+
+  # On loop, restart the synthetic clock at start_time so the same window
+  # replays with the same track data. Set true to let the clock run on past
+  # the end of the recording instead (the overlay will empty out).
+  advance_clock_on_loop: false

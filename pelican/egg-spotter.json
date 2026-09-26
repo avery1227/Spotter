@@ -1,0 +1,153 @@
+{
+    "_comment": "Spotter — AIS/ADS-B AR overlay for a fixed camera. Import into Pelican Panel (or Pterodactyl) under Admin → Eggs → Import Egg. Pelican reads the PTDL_v2 format natively.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-09-26T00:00:00+00:00",
+    "name": "Spotter",
+    "author": "noreply@anthropic.com",
+    "description": "Burns AR-style tracking labels for ships (AIS) and aircraft (ADS-B) into a fixed camera's live stream, and re-streams the composited video over RTMP. Includes a web UI for calibration and a full-screen monitor view. No GPU required — software H.264 by default.",
+    "features": null,
+    "docker_images": {
+        "Spotter (latest)": "ghcr.io/avery1227/spotter:latest-pelican",
+        "Spotter (v1)": "ghcr.io/avery1227/spotter:v1-pelican"
+    },
+    "file_denylist": [],
+    "startup": "python -m spotter {{STARTUP_MODE}} --log-format {{LOG_FORMAT}} --log-level {{LOG_LEVEL}} --set web.enabled=true --set web.host=0.0.0.0 --set web.port={{SERVER_PORT}} --set stream.url=\"{{STREAM_URL}}\" --set stream.quality={{STREAM_QUALITY}} --set stream.encoder_delay_s={{ENCODER_DELAY_S}} --set output.enabled={{OUTPUT_ENABLED}} --set output.rtmp_url=\"{{RTMP_URL}}\" --set output.encoder={{VIDEO_ENCODER}} --set output.bitrate={{VIDEO_BITRATE}} {{EXTRA_ARGS}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"web UI listening\"\r\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# Spotter needs nothing downloaded at install time: the application ships\n# inside the Docker image, and everything under /mnt/server is user data that\n# the entrypoint seeds on first boot.\n#\n# We only lay out the directories here so the panel's file manager shows a\n# sensible structure before the server has ever been started.\n\nmkdir -p /mnt/server/state /mnt/server/data/offline\n\ncat > /mnt/server/README.txt <<'EOF'\nSpotter\n=======\n\nThis directory is the server's data. The application itself lives inside the\nimage and is replaced when you pull a new one, so nothing here is overwritten\nby an upgrade.\n\n  config.yaml        every setting. Written on first boot; edit it here.\n  points.csv         calibration control points, written by the web UI.\n  calibration.json   the solved camera model. Created when you solve.\n  state/             drift reference patches, points history/backups.\n  data/offline/      recorded clip + track data for offline test mode.\n\nFIRST RUN\n---------\n1. Start the server. The console prints the web UI address.\n2. Open it on the server's allocated port.\n3. Set the camera position, click landmarks, solve. That writes\n   calibration.json.\n4. Restart. The pipeline will not start without a calibration.\n\nIf you would rather calibrate before running the pipeline, set the\nSTARTUP_MODE variable to \"web\" — that serves the UI without starting the\npipeline. Set it back to \"run\" afterwards.\n\nNo GPU is required. For 1080p give the server at least 3 CPU; at 2 CPU set\nSTREAM_QUALITY to 720p.\nEOF\n\necho \"Spotter: install complete. Start the server, then open the web UI.\"\n",
+            "container": "debian:bookworm-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Startup mode",
+            "description": "\"run\" starts the full pipeline plus the web UI (needs a calibration.json). \"web\" serves only the calibration and monitor UI — use this the first time, before you have calibrated. \"doctor\" prints a configuration check and exits.",
+            "env_variable": "STARTUP_MODE",
+            "default_value": "run",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:run,web,doctor",
+            "field_type": "text"
+        },
+        {
+            "name": "Stream URL",
+            "description": "The camera's live stream. A YouTube watch URL, or any page streamlink or yt-dlp can resolve to HLS.",
+            "env_variable": "STREAM_URL",
+            "default_value": "https://www.youtube.com/watch?v=OMTZRs4ImPc",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:500",
+            "field_type": "text"
+        },
+        {
+            "name": "Stream quality",
+            "description": "Source rendition to pull. \"best\" takes the highest available. Dropping to 720p is the single biggest CPU saving if the server is tight — 1080p needs about 2.3 cores, 720p about 1.7.",
+            "env_variable": "STREAM_QUALITY",
+            "default_value": "best",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:20",
+            "field_type": "text"
+        },
+        {
+            "name": "Encoder delay (seconds)",
+            "description": "How far the camera owner's own pipeline runs behind reality, on top of the timestamps in the stream. Tune it by watching an aircraft cross the frame and adjusting until its label sits on it. Typically 8-20.",
+            "env_variable": "ENCODER_DELAY_S",
+            "default_value": "12.0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|numeric|between:0,120",
+            "field_type": "text"
+        },
+        {
+            "name": "Publish output",
+            "description": "Whether to re-stream the composited video. Set false to run overlay-only and just watch it in the web UI — useful while calibrating, and it saves the encode.",
+            "env_variable": "OUTPUT_ENABLED",
+            "default_value": "true",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "RTMP destination",
+            "description": "Where to publish, e.g. rtmp://a.rtmp.youtube.com/live2/YOUR-STREAM-KEY or a local MediaMTX. Ignored when \"Publish output\" is false. Treat this as a secret — it usually contains a stream key.",
+            "env_variable": "RTMP_URL",
+            "default_value": "rtmp://127.0.0.1:1935/live/spotter",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:500",
+            "field_type": "text"
+        },
+        {
+            "name": "Video encoder",
+            "description": "\"auto\" prefers hardware (NVENC/QSV/VAAPI) and falls back to software libx264. Unless the host passes a GPU through to the container, this will be libx264 — which is fine, it is the default path.",
+            "env_variable": "VIDEO_ENCODER",
+            "default_value": "auto",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:auto,libx264,h264_nvenc,h264_qsv,h264_vaapi",
+            "field_type": "text"
+        },
+        {
+            "name": "Video bitrate",
+            "description": "Target bitrate for the published stream, e.g. 6000k for 1080p or 3000k for 720p.",
+            "env_variable": "VIDEO_BITRATE",
+            "default_value": "6000k",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:12",
+            "field_type": "text"
+        },
+        {
+            "name": "aisstream.io API key",
+            "description": "Optional. Only needed if you have no local AIS receiver — without one of the two, no ships will ever be labelled. Free key from aisstream.io.",
+            "env_variable": "AISSTREAM_API_KEY",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Log format",
+            "description": "\"console\" is readable in the panel console. \"json\" is line-delimited JSON for shipping to Loki or similar.",
+            "env_variable": "LOG_FORMAT",
+            "default_value": "console",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:console,json",
+            "field_type": "text"
+        },
+        {
+            "name": "Log level",
+            "description": "DEBUG is very noisy — it logs every track poll.",
+            "env_variable": "LOG_LEVEL",
+            "default_value": "INFO",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:DEBUG,INFO,WARNING,ERROR",
+            "field_type": "text"
+        },
+        {
+            "name": "Extra arguments",
+            "description": "Appended verbatim to the command. Use --set KEY=VALUE for anything in config.yaml, e.g. \"--set render.max_labels=12 --set projection.max_range_m=40000\".",
+            "env_variable": "EXTRA_ARGS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:500",
+            "field_type": "text"
+        }
+    ]
+}

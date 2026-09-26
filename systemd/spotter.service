@@ -1,0 +1,59 @@
+# Run Spotter directly under systemd (no Docker).
+#
+#   sudo cp systemd/spotter.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now spotter
+#
+# For the Docker Compose deployment use systemd/spotter-compose.service instead.
+
+[Unit]
+Description=Spotter AIS/ADS-B camera overlay
+Documentation=https://github.com/your/spotter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spotter
+Group=spotter
+WorkingDirectory=/opt/spotter
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/spotter/env
+ExecStart=/opt/spotter/.venv/bin/python -m spotter run
+
+# The pipeline exits non-zero when it cannot recover on its own (encoder died,
+# calibration missing). Restarting is the right answer for the first; for the
+# second it will keep failing and the rate limit below stops a hot loop.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# Give it time to drain the encoder and close the RTMP connection cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logs go to the journal as line-delimited JSON (logging.format: json).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=spotter
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/spotter/state /opt/spotter/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryMax=2G
+
+# Uncomment for VAAPI hardware encoding:
+# SupplementaryGroups=video
+# DeviceAllow=/dev/dri/renderD128 rw
+
+[Install]
+WantedBy=multi-user.target

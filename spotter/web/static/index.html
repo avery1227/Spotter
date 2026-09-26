@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotter · calibrate</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header>
+  <h1>Spotter</h1>
+  <nav>
+    <a href="/" class="active">Calibrate</a>
+    <a href="/monitor">Monitor</a>
+    <a href="/view" target="_blank" title="full-screen output, for a wall display">Full screen ↗</a>
+  </nav>
+  <span id="headerInfo" class="muted"></span>
+</header>
+
+<main class="calib-layout">
+
+  <!-- ─────────── left: the camera frame ─────────── -->
+  <section class="panel frame-panel">
+    <div class="panel-head">
+      <h2>1 · Click the landmark in the frame</h2>
+      <div class="controls">
+        <button id="grabBtn" class="btn">Grab fresh frame</button>
+        <label class="check"><input type="checkbox" id="showReproj"> show fit</label>
+        <label class="check"><input type="checkbox" id="showHorizon"> horizon</label>
+        <span class="zoomctl">
+          <button class="btn small" id="zoomOut">−</button>
+          <span id="zoomLabel">fit</span>
+          <button class="btn small" id="zoomIn">+</button>
+        </span>
+      </div>
+    </div>
+
+    <div id="frameWrap" class="frame-wrap">
+      <canvas id="frameCanvas"></canvas>
+      <div id="framePlaceholder" class="placeholder">
+        No calibration frame yet — press <b>Grab fresh frame</b>.
+      </div>
+    </div>
+
+    <div class="loupe-row">
+      <div>
+        <canvas id="loupe" width="220" height="220"></canvas>
+        <div class="loupe-caption">
+          8× · arrow keys nudge one pixel
+        </div>
+      </div>
+      <div class="pixel-readout">
+        <div>pixel</div>
+        <div id="pixelReadout" class="mono big">—</div>
+        <p class="muted small">
+          Click a feature you can also find on the map: a jetty tip, a
+          breakwater light, a chimney, a distinctive rock. Mix near and far —
+          points strung along the horizon leave pitch, height and focal length
+          trading off against each other.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── right: map + form + points ─────────── -->
+  <section class="panel side-panel">
+
+    <div class="panel-head">
+      <h2>0 · Where is the camera?</h2>
+      <div class="controls">
+        <button id="pickCameraBtn" class="btn small">Pick on map</button>
+      </div>
+    </div>
+    <div class="camerabox">
+      <div class="pair">
+        <label>Latitude <input id="camLat" type="text" class="mono"></label>
+        <label>Longitude <input id="camLon" type="text" class="mono"></label>
+      </div>
+      <div class="pair">
+        <label>Lens height above sea level, m
+          <input id="camHeight" type="number" step="0.5" min="0"></label>
+        <label class="check heightunknown">
+          <input type="checkbox" id="camHeightUnknown"> I don't know the height
+        </label>
+      </div>
+      <div class="controls" style="margin-left:0">
+        <button id="saveCameraBtn" class="btn primary">Save camera position</button>
+        <span id="camHint" class="muted small"></span>
+      </div>
+      <p id="camUnknownNote" class="muted small nomargin" style="display:none">
+        The solver will find the height for you — but height and tilt look almost
+        identical from 20 km away, so it can only separate them if some of your
+        points are <b>close to the camera</b>. Include a few things within a
+        kilometre (a piling, the seawall, a roof ridge) or the height it reports
+        will be meaningless.
+      </p>
+    </div>
+
+    <div class="panel-head">
+      <h2>2 · Put the same spot on the map</h2>
+    </div>
+    <div id="map"></div>
+    <div class="maprow">
+      <input id="pasteBox" type="text" spellcheck="false"
+             placeholder="or paste from Google Maps:  41.276123, -72.459456">
+      <button id="pasteBtn" class="btn small">Use</button>
+    </div>
+    <p class="muted small nomargin">
+      In Google Maps, right-click the spot → click the coordinates at the top of
+      the menu to copy them, then paste here.
+    </p>
+
+    <div class="panel-head">
+      <h2>3 · Name it and add</h2>
+    </div>
+    <form id="pointForm" class="pointform">
+      <label>Name <input id="fName" type="text" placeholder="jetty_tip" required></label>
+      <div class="pair">
+        <label>Latitude <input id="fLat" type="text" class="mono" required></label>
+        <label>Longitude <input id="fLon" type="text" class="mono" required></label>
+      </div>
+      <div class="pair">
+        <label>Elevation m <input id="fElev" type="number" step="0.1" value="0"></label>
+        <label>Pixel <input id="fPixel" type="text" class="mono" readonly></label>
+      </div>
+      <button type="submit" class="btn primary" id="addBtn">Add point</button>
+      <span id="formHint" class="muted small"></span>
+    </form>
+
+    <div class="panel-head">
+      <h2>Points <span id="pointCount" class="muted"></span></h2>
+    </div>
+    <div class="table-wrap">
+      <table id="pointsTable">
+        <thead><tr>
+          <th></th><th>name</th><th>pixel</th><th>lat, lon</th>
+          <th>elev</th><th>err</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel-head">
+      <h2>4 · Solve</h2>
+    </div>
+    <div class="solve-opts">
+      <label class="check"><input type="checkbox" id="lockHeight"> lock height</label>
+      <label class="check"><input type="checkbox" id="lockPosition"> lock position</label>
+      <label class="check"><input type="checkbox" id="lockRoll"> lock roll</label>
+      <label class="check"><input type="checkbox" id="lockDistortion"> lock distortion</label>
+    </div>
+    <div class="controls">
+      <button id="solveBtn" class="btn">Solve (preview)</button>
+      <button id="saveBtn" class="btn primary">Solve &amp; save calibration</button>
+    </div>
+    <div id="solveOut"></div>
+
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/static/calibrate.js"></script>
+</body>
+</html>

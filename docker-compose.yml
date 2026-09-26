@@ -1,0 +1,113 @@
+# Spotter, plus an optional local RTMP server to publish into.
+#
+#   docker compose up -d spotter          # overlay only
+#   docker compose --profile mediamtx up  # overlay + local RTMP/HLS server
+#
+# Put secrets in a .env file next to this one:
+#   RTMP_URL=rtmp://a.rtmp.youtube.com/live2/xxxx-xxxx-xxxx-xxxx
+#   AISSTREAM_API_KEY=...
+
+services:
+  spotter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/avery1227/spotter:latest
+    container_name: spotter
+    restart: unless-stopped
+
+    # Read-only root keeps a long-running unattended service honest; the two
+    # paths that genuinely need to be writable are mounted explicitly below.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    environment:
+      # Overrides config.yaml via ${VAR} expansion in that file.
+      TZ: ${TZ:-America/New_York}
+      AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      PYTHONUNBUFFERED: "1"
+
+    volumes:
+      # Site configuration and calibration: edit on the host, no rebuild.
+      # cp config.example.yaml config.yaml, then edit it.
+      - ./config.yaml:/app/config.yaml:ro
+      - ./calibration.json:/app/calibration.json:ro
+      - ./points.csv:/app/points.csv:ro
+      # Drift reference patches and other runtime state.
+      - ./state:/app/state
+      # Offline clips and recorded track data.
+      - ./data:/app/data
+
+    command:
+      - run
+      - --web
+      - --set
+      - output.rtmp_url=${RTMP_URL:-rtmp://mediamtx:1935/live/spotter}
+      # Inside the container the UI must listen on all interfaces for the
+      # published port to reach it; the host side is bound to localhost above.
+      - --set
+      - web.host=0.0.0.0
+
+    # A local readsb / AIS-catcher on the host is reachable at host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      # Raw NMEA over UDP, if AIS-catcher forwards to this container.
+      - "10110:10110/udp"
+      # Web UI: calibration and the live monitor. Bound to localhost on the
+      # host because the UI has no authentication.
+      - "127.0.0.1:8090:8090"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    deploy:
+      resources:
+        limits:
+          # Decode + Skia + x264 at 1080p30. Raise if you run a bigger stream.
+          cpus: "4.0"
+          memory: 2G
+
+    # Uncomment for VAAPI hardware encoding (set output.encoder: h264_vaapi):
+    # devices:
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
+    #
+    # For NVENC, install the NVIDIA container toolkit and add:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Local RTMP/HLS endpoint, so you can watch the composited output without
+  # pushing to YouTube. Play it at rtmp://localhost:1935/live/spotter or
+  # http://localhost:8888/live/spotter
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: spotter-mediamtx
+    restart: unless-stopped
+    profiles: ["mediamtx"]
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_RTMPADDRESS: ":1935"
+      MTX_HLSADDRESS: ":8888"
+    ports:
+      - "1935:1935"     # RTMP in (spotter publishes here) and out
+      - "8888:8888"     # HLS, for watching in a browser
+      - "8554:8554"     # RTSP
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,84 @@
+name: Publish image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - target: runtime
+            suffix: ""
+          - target: pelican
+            suffix: "-pelican"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          flavor: |
+            suffix=${{ matrix.suffix }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  egg:
+    # The egg has to name the image, which is only known once we know the repo.
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stamp the egg with this repository's image
+        run: |
+          python - <<'PY'
+          import json, os
+          repo = os.environ["GITHUB_REPOSITORY"].lower()
+          path = "pelican/egg-spotter.json"
+          egg = json.load(open(path, encoding="utf-8"))
+          egg["docker_images"] = {
+              "Spotter (latest)": f"ghcr.io/{repo}:latest-pelican",
+              "Spotter (v1)":     f"ghcr.io/{repo}:v1-pelican",
+          }
+          json.dump(egg, open(path, "w", encoding="utf-8"), indent=4, ensure_ascii=False)
+          open(path, "a", encoding="utf-8").write("\n")
+          print("images ->", egg["docker_images"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pelican-egg
+          path: pelican/egg-spotter.json

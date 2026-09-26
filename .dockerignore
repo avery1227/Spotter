@@ -1,0 +1,10 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+state/
+data/offline/*.mp4
+data/offline/*.jsonl
+*.png
+!docs/*.png
+.pytest_cache/

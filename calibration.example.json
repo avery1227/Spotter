@@ -1,0 +1,244 @@
+{
+  "ref_lat": 41.27,
+  "ref_lon": -72.5,
+  "width": 1920,
+  "height": 1080,
+  "yaw_deg": 171.9845245545803,
+  "pitch_deg": -9.007602507220932,
+  "roll_deg": 0.32988397391542806,
+  "offset_e_m": 24.921258727494084,
+  "offset_n_m": -17.833956551978417,
+  "height_m": 15.997407843898001,
+  "focal_px": 1498.5780833282602,
+  "cx": 960.0,
+  "cy": 540.0,
+  "k1": -0.014661118009269496,
+  "k2": -0.03618748666272928,
+  "refraction_k": 1.1666666667,
+  "meta": {
+    "points_file": "points.example.csv",
+    "n_points": 12,
+    "rms_px": 0.78,
+    "max_px": 1.515,
+    "warnings": [
+      "92% of points lie within 86px of the same height; add near-field points (a dock, a buoy, a rooftop) or pitch/height/focal will trade off against each other"
+    ],
+    "per_point": [
+      {
+        "name": "far_shore_light_E",
+        "clicked": [
+          581.1,
+          309.7
+        ],
+        "reprojected": [
+          581.5,
+          308.3
+        ],
+        "error_px": 1.51,
+        "loo_error_px": 2.02,
+        "loo_delta_px": 0.51,
+        "loo_rest_rms_px": 0.62,
+        "rms_improvement_px": 0.16,
+        "in_front": true
+      },
+      {
+        "name": "far_shore_stack",
+        "clicked": [
+          853.5,
+          305.8
+        ],
+        "reprojected": [
+          853.0,
+          306.1
+        ],
+        "error_px": 0.52,
+        "loo_error_px": 0.63,
+        "loo_delta_px": 0.1,
+        "loo_rest_rms_px": 0.8,
+        "rms_improvement_px": -0.02,
+        "in_front": true
+      },
+      {
+        "name": "far_shore_light_W",
+        "clicked": [
+          1117.7,
+          304.4
+        ],
+        "reprojected": [
+          1118.4,
+          304.8
+        ],
+        "error_px": 0.76,
+        "loo_error_px": 0.93,
+        "loo_delta_px": 0.17,
+        "loo_rest_rms_px": 0.77,
+        "rms_improvement_px": 0.01,
+        "in_front": true
+      },
+      {
+        "name": "far_shore_tower",
+        "clicked": [
+          1393.0,
+          303.4
+        ],
+        "reprojected": [
+          1393.1,
+          303.3
+        ],
+        "error_px": 0.19,
+        "loo_error_px": 0.31,
+        "loo_delta_px": 0.13,
+        "loo_rest_rms_px": 0.81,
+        "rms_improvement_px": -0.03,
+        "in_front": true
+      },
+      {
+        "name": "channel_buoy_R2",
+        "clicked": [
+          349.2,
+          309.3
+        ],
+        "reprojected": [
+          348.9,
+          310.2
+        ],
+        "error_px": 1.01,
+        "loo_error_px": 1.72,
+        "loo_delta_px": 0.71,
+        "loo_rest_rms_px": 0.71,
+        "rms_improvement_px": 0.07,
+        "in_front": true
+      },
+      {
+        "name": "channel_buoy_G5",
+        "clicked": [
+          1631.3,
+          303.1
+        ],
+        "reprojected": [
+          1630.9,
+          303.1
+        ],
+        "error_px": 0.38,
+        "loo_error_px": 0.84,
+        "loo_delta_px": 0.46,
+        "loo_rest_rms_px": 0.8,
+        "rms_improvement_px": -0.02,
+        "in_front": true
+      },
+      {
+        "name": "jetty_tip",
+        "clicked": [
+          774.1,
+          355.0
+        ],
+        "reprojected": [
+          774.0,
+          354.9
+        ],
+        "error_px": 0.14,
+        "loo_error_px": 0.19,
+        "loo_delta_px": 0.05,
+        "loo_rest_rms_px": 0.81,
+        "rms_improvement_px": -0.03,
+        "in_front": true
+      },
+      {
+        "name": "flagpole_base",
+        "clicked": [
+          1224.1,
+          375.9
+        ],
+        "reprojected": [
+          1224.3,
+          375.4
+        ],
+        "error_px": 0.52,
+        "loo_error_px": 0.67,
+        "loo_delta_px": 0.15,
+        "loo_rest_rms_px": 0.79,
+        "rms_improvement_px": -0.01,
+        "in_front": true
+      },
+      {
+        "name": "seawall_corner",
+        "clicked": [
+          357.7,
+          437.4
+        ],
+        "reprojected": [
+          357.4,
+          436.9
+        ],
+        "error_px": 0.59,
+        "loo_error_px": 2.8,
+        "loo_delta_px": 2.21,
+        "loo_rest_rms_px": 0.73,
+        "rms_improvement_px": 0.05,
+        "in_front": true
+      },
+      {
+        "name": "dock_piling",
+        "clicked": [
+          1753.7,
+          368.3
+        ],
+        "reprojected": [
+          1753.8,
+          367.7
+        ],
+        "error_px": 0.52,
+        "loo_error_px": 2.37,
+        "loo_delta_px": 1.85,
+        "loo_rest_rms_px": 0.77,
+        "rms_improvement_px": 0.01,
+        "in_front": true
+      },
+      {
+        "name": "gazebo_peak",
+        "clicked": [
+          958.1,
+          341.6
+        ],
+        "reprojected": [
+          958.8,
+          342.7
+        ],
+        "error_px": 1.31,
+        "loo_error_px": 1.83,
+        "loo_delta_px": 0.52,
+        "loo_rest_rms_px": 0.67,
+        "rms_improvement_px": 0.11,
+        "in_front": true
+      },
+      {
+        "name": "roof_ridge_W",
+        "clicked": [
+          1506.5,
+          353.6
+        ],
+        "reprojected": [
+          1506.0,
+          354.0
+        ],
+        "error_px": 0.58,
+        "loo_error_px": 1.61,
+        "loo_delta_px": 1.03,
+        "loo_rest_rms_px": 0.76,
+        "rms_improvement_px": 0.02,
+        "in_front": true
+      }
+    ],
+    "seed": {
+      "yaw_deg": 160.0,
+      "focal_px": 1037.8
+    },
+    "solved_from_image": "calib_frame.png"
+  },
+  "derived": {
+    "hfov_deg": 65.2878,
+    "vfov_deg": 39.6324,
+    "camera_lat": 41.26983942,
+    "camera_lon": -72.49970258
+  }
+}
