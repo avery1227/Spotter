@@ -40,9 +40,9 @@ say "python $(python -V 2>&1 | cut -d' ' -f2) · ffmpeg $(ffmpeg -version 2>/dev
 say "internal IP: $(ip addr show 2>/dev/null | awk '/inet /{print $2}' | grep -v '^127' | head -1)"
 
 if [ ! -f /home/container/calibration.json ]; then
-    warn "no calibration.json yet — the pipeline cannot start without one."
-    warn "open the web UI on the server's port and work through Calibrate,"
-    warn "or set STARTUP_MODE=web to run the UI on its own first."
+    warn "no calibration.json yet. The web UI will come up and wait:"
+    warn "open it on this server's port, calibrate, and Solve & save."
+    warn "The pipeline starts by itself once the calibration exists."
 fi
 
 # ---------------------------------------------------------------------------

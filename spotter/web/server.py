@@ -393,6 +393,9 @@ def create_app(state: WebState) -> Flask:
             "points": [e.as_dict() for e in result.errors],
             "warnings": result.warnings,
             "saved": bool(body.get("save", False)),
+            "pipeline_waiting": bool(
+                state.pipeline is not None
+                and getattr(state.pipeline, "waiting_for_calibration", False)),
         })
 
     @app.route("/api/reprojection")

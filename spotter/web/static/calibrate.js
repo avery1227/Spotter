@@ -503,7 +503,9 @@ async function doSolve(save) {
     if (save) {
       $("showReproj").checked = true;
       await loadReprojection();
-      toast("Calibration saved", "good");
+      toast(data.pipeline_waiting
+              ? "Calibration saved; the pipeline is starting now"
+              : "Calibration saved", "good");
     }
   } catch (e) {
     $("solveOut").innerHTML = `<div class="errbox">${escapeHtml(e.message)}</div>`;

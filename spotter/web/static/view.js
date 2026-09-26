@@ -89,6 +89,14 @@ async function poll() {
     return;
   }
 
+  if (s.waiting_for_calibration) {
+    $("sState").innerHTML = `<span class="dot warn"></span>no calibration`;
+    showBanner("Waiting for calibration",
+               "open <a href='/' style='color:#4fc3f7'>Calibrate</a>; " +
+               "the pipeline starts once you save");
+    return;
+  }
+
   // An MJPEG <img> gives no progress events, so watch the server's own frame
   // counter. If it is advancing but our picture is not, the stream socket died
   // quietly and only a reconnect will fix it.

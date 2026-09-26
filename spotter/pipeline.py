@@ -98,6 +98,9 @@ class Pipeline:
         self._audio_prime: list[bytes] = []
         self._audio_primed_bytes = 0
         self._frames_before_start = 0
+        #: True while the web UI is up but there is no calibration to project
+        #: through yet. The monitor page shows this instead of empty stats.
+        self.waiting_for_calibration = False
 
     # -- setup --------------------------------------------------------------
     def _load_calibration(self, width: int, height: int) -> CameraModel:
@@ -245,7 +248,50 @@ class Pipeline:
         return self._decoder.info if self._decoder else StreamInfo()
 
     # -- main loop ----------------------------------------------------------
+    def _wait_for_calibration(self) -> bool:
+        """Block until calibration.json exists. Returns False if we should stop.
+
+        Without a calibration there is nothing to project through, so the
+        pipeline cannot run. But exiting is the wrong answer when the web UI is
+        attached: the UI is how you *make* a calibration, and under a panel or a
+        restart policy an exit becomes a crash loop that takes the UI down with
+        it every few seconds. So with the UI up we stay alive, and start the
+        moment a calibration is saved.
+        """
+        path = self.cfg.path("calibration.path", "./calibration.json")
+        if path is not None and path.is_file():
+            return True
+
+        if self.frame_hub is None:
+            log.error("no calibration; nothing to project through. Run with "
+                      "--web and calibrate in the browser, or use calibrate.py",
+                      extra={"path": str(path)})
+            return False
+
+        self.waiting_for_calibration = True
+        log.warning("no calibration yet -- the web UI is up. Open it, calibrate, "
+                    "and the pipeline will start by itself",
+                    extra={"path": str(path)})
+        last_reminder = time.monotonic()
+        while not self.stop_event.wait(2.0):
+            if path.is_file():
+                log.info("calibration found; starting the pipeline",
+                         extra={"path": str(path)})
+                self.waiting_for_calibration = False
+                return True
+            if time.monotonic() - last_reminder > 120:
+                last_reminder = time.monotonic()
+                log.info("still waiting for a calibration", extra={"path": str(path)})
+        return False
+
     def run(self) -> int:
+        if not self._wait_for_calibration():
+            stopped = self.stop_event.is_set()
+            self.shutdown()
+            # Asked to stop while waiting is a clean exit; no calibration and no
+            # UI to fix it with is a configuration error.
+            return 0 if stopped else 2
+
         log.info("starting pipeline", extra={
             "mode": "offline" if self.offline else "live",
             "url": self.cfg.get("stream.url") if not self.offline
@@ -370,6 +416,7 @@ class Pipeline:
             "groups": [g.status() for g in self.tracks.groups],
             "drift": self.drift.status(),
             "offline": self.offline,
+            "waiting_for_calibration": self.waiting_for_calibration,
         }
         if self.projector is not None:
             payload["cull"] = self.projector.last_stats.as_dict()

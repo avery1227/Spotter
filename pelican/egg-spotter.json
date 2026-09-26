@@ -31,7 +31,7 @@
     "variables": [
         {
             "name": "Startup mode",
-            "description": "\"run\" starts the full pipeline plus the web UI (needs a calibration.json). \"web\" serves only the calibration and monitor UI — use this the first time, before you have calibrated. \"doctor\" prints a configuration check and exits.",
+            "description": "\"run\" starts the web UI and the pipeline. With no calibration.json yet, the UI comes up and waits: calibrate in the browser and the pipeline starts by itself once you save. \"web\" serves only the UI. \"doctor\" prints a configuration check and exits.",
             "env_variable": "STARTUP_MODE",
             "default_value": "run",
             "user_viewable": true,

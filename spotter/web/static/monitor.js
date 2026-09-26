@@ -57,6 +57,17 @@ async function poll() {
     return;
   }
 
+  if (s.waiting_for_calibration) {
+    $("statusGrid").innerHTML =
+      row("pipeline", `<span class="badge warn">waiting for calibration</span>`) +
+      row("next", `open <a href="/">Calibrate</a>; it starts once you save`);
+    $("cullGrid").innerHTML = "";
+    $("sources").innerHTML = "";
+    $("liveHint").innerHTML = "No calibration yet. Open <a href='/'>Calibrate</a>, " +
+      "then <b>Solve &amp; save</b>, and the pipeline starts by itself.";
+    return;
+  }
+
   const enc = s.output || {};
   const tracks = s.tracks || {};
   const drift = s.drift || {};
