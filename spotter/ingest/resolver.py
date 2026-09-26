@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
+from ..compat import ensure_urllib3_percent_re
 from ..logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -72,6 +73,10 @@ def _resolve_streamlink(url: str, quality: str, timeout_s: float) -> str:
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise ResolveError("streamlink is not installed") from exc
 
+    # Importing streamlink patches a private urllib3 global; make sure the
+    # result is still usable by everything else in the process.
+    ensure_urllib3_percent_re()
+
     session = streamlink.Streamlink()
     session.set_option("stream-timeout", timeout_s)
     session.set_option("http-timeout", timeout_s)
@@ -97,6 +102,12 @@ def _resolve_ytdlp(url: str, quality: str, timeout_s: float) -> str:
         import yt_dlp
     except ImportError as exc:  # pragma: no cover
         raise ResolveError("yt-dlp is not installed") from exc
+
+    # yt-dlp replaces urllib3's _PERCENT_RE with a shim that lacks .sub, which
+    # breaks every subsequent HTTP request in the process -- track feeds
+    # included -- and never recovers. We only get here as a fallback, so this
+    # would otherwise turn one transient resolver failure into a dead service.
+    ensure_urllib3_percent_re()
 
     # Prefer a muxed HLS rendition so audio rides along in the same segments.
     fmt = "best[protocol^=m3u8]/best"

@@ -726,6 +726,15 @@ listener binds happily and hears nothing.
 You are polling too fast, or sharing an IP with someone who is. Raise `poll_s`.
 A local receiver removes the problem entirely.
 
+**Everything HTTP dies at once and never recovers.**
+`AttributeError: 'Urllib3PercentREOverride' object has no attribute 'sub'` in
+every track poll and every stream resolve. streamlink and yt-dlp both patch the
+same private urllib3 global, and yt-dlp's replacement omits `.sub`. Since
+yt-dlp is imported only as a fallback when streamlink fails to resolve, one
+transient resolver failure used to poison the whole process permanently.
+`spotter/compat.py` repairs it; if you see this, you are on a build from before
+that fix.
+
 **Output stutters at segment boundaries.**
 Should not happen — the decoder is flushed at the end of every segment. If it
 does, check `decode_errors` in the status log.

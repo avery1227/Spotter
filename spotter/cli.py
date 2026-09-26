@@ -404,6 +404,10 @@ def main(argv=None) -> int:
         return 2
 
     setup_logging(cfg, level=args.log_level, fmt=args.log_format)
+
+    from .compat import apply_all
+    apply_all()
+
     return args.func(args, cfg)
 
 
