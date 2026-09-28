@@ -83,6 +83,13 @@ Upgrading is just pulling a newer image — your calibration is untouched.
 — there is nothing to project through. Use `STARTUP_MODE=web` first. The
 console says so on boot.
 
+**YouTube blocks most hosting IPs.** If the console shows `Sign in to confirm
+you're not a bot`, YouTube wants a logged-in session from this server. Export
+YouTube cookies in Netscape format (e.g. the "Get cookies.txt LOCALLY" browser
+extension, ideally from a throwaway Google account), upload the file as
+`cookies.txt` next to `config.yaml`, and restart. Cookies expire; when the error
+comes back, export a fresh file.
+
 **No AIS source means no ships, ever.** The UDP listener binds happily and
 hears nothing. You need either an AIS-catcher feeding this server's UDP
 allocation, or an `AISSTREAM_API_KEY`. Aircraft work out of the box.

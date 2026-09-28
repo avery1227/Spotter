@@ -12,8 +12,10 @@ to re-resolve periodically (``stream.reresolve_interval_s``) and on failure.
 
 from __future__ import annotations
 
+import os
 import re
 import time
+from http.cookiejar import LoadError, MozillaCookieJar
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
@@ -26,6 +28,12 @@ from ..logging_setup import get_logger
 log = get_logger(__name__)
 
 _QUALITY_RANK = re.compile(r"(\d+)p")
+
+#: Picked up automatically when ``stream.cookies_file`` is unset, so a panel
+#: user can fix bot-checks by dropping a file into the server directory.
+DEFAULT_COOKIES_FILE = "cookies.txt"
+
+_BOT_CHECK = re.compile(r"not a bot|LOGIN_REQUIRED|Sign in to confirm", re.I)
 
 
 class ResolveError(Exception):
@@ -66,7 +74,33 @@ def _expiry_from_url(url: str) -> Optional[float]:
     return None
 
 
-def _resolve_streamlink(url: str, quality: str, timeout_s: float) -> str:
+def find_cookies_file(configured: Optional[str]) -> Optional[str]:
+    """Return the Netscape cookies file to send to YouTube, or None.
+
+    An explicitly configured path must exist; an unset one falls back to
+    ``cookies.txt`` in the working directory if there is one.
+    """
+    if configured:
+        path = os.path.expanduser(configured)
+        if not os.path.isfile(path):
+            raise ResolveError(f"stream.cookies_file {configured!r} does not exist")
+        return path
+    return DEFAULT_COOKIES_FILE if os.path.isfile(DEFAULT_COOKIES_FILE) else None
+
+
+def _load_cookie_jar(path: str) -> MozillaCookieJar:
+    jar = MozillaCookieJar(path)
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except (LoadError, OSError) as exc:
+        raise ResolveError(
+            f"could not read cookies file {path!r} (needs Netscape/cookies.txt format): {exc}"
+        ) from exc
+    return jar
+
+
+def _resolve_streamlink(url: str, quality: str, timeout_s: float,
+                        cookies_file: Optional[str] = None) -> str:
     try:
         import streamlink
         from streamlink.stream.hls import HLSStream
@@ -80,6 +114,8 @@ def _resolve_streamlink(url: str, quality: str, timeout_s: float) -> str:
     session = streamlink.Streamlink()
     session.set_option("stream-timeout", timeout_s)
     session.set_option("http-timeout", timeout_s)
+    if cookies_file:
+        session.http.cookies.update(_load_cookie_jar(cookies_file))
 
     try:
         streams = session.streams(url)
@@ -97,7 +133,8 @@ def _resolve_streamlink(url: str, quality: str, timeout_s: float) -> str:
     return stream.url
 
 
-def _resolve_ytdlp(url: str, quality: str, timeout_s: float) -> str:
+def _resolve_ytdlp(url: str, quality: str, timeout_s: float,
+                   cookies_file: Optional[str] = None) -> str:
     try:
         import yt_dlp
     except ImportError as exc:  # pragma: no cover
@@ -122,6 +159,11 @@ def _resolve_ytdlp(url: str, quality: str, timeout_s: float) -> str:
         "socket_timeout": timeout_s,
         "noplaylist": True,
     }
+    if cookies_file:
+        # Validate up front so a bad file reads as a cookies problem rather
+        # than an opaque extractor error.
+        _load_cookie_jar(cookies_file)
+        opts["cookiefile"] = cookies_file
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -161,16 +203,23 @@ def _ensure_media_playlist(url: str, timeout_s: float, quality: str) -> str:
 def resolve_stream(url: str,
                    resolver: str = "streamlink",
                    quality: str = "best",
-                   timeout_s: float = 60.0) -> ResolvedStream:
-    """Resolve ``url`` to an HLS media playlist, trying the other backend on failure."""
+                   timeout_s: float = 60.0,
+                   cookies_file: Optional[str] = None) -> ResolvedStream:
+    """Resolve ``url`` to an HLS media playlist, trying the other backend on failure.
+
+    ``cookies_file`` is a Netscape-format cookies.txt sent with the YouTube
+    requests; YouTube demands one from most datacenter IPs ("Sign in to
+    confirm you're not a bot").
+    """
     order = ["streamlink", "yt_dlp"] if resolver == "streamlink" else ["yt_dlp", "streamlink"]
     errors: list[str] = []
 
     for backend in order:
         started = time.monotonic()
         try:
-            raw = (_resolve_streamlink(url, quality, timeout_s) if backend == "streamlink"
-                   else _resolve_ytdlp(url, quality, timeout_s))
+            raw = (_resolve_streamlink(url, quality, timeout_s, cookies_file)
+                   if backend == "streamlink"
+                   else _resolve_ytdlp(url, quality, timeout_s, cookies_file))
             playlist = _ensure_media_playlist(raw, timeout_s, quality)
         except ResolveError as exc:
             errors.append(f"{backend}: {exc}")
@@ -193,4 +242,15 @@ def resolve_stream(url: str,
         })
         return resolved
 
-    raise ResolveError("all resolver backends failed: " + "; ".join(errors))
+    if any(_BOT_CHECK.search(e) for e in errors):
+        # Logged on its own because the console formatter truncates the
+        # combined error below well before any advice would show.
+        if cookies_file:
+            log.error("youtube rejected the cookies; export a fresh cookies.txt",
+                      extra={"cookies_file": cookies_file})
+        else:
+            log.error("youtube wants a signed-in session from this IP; "
+                      "put a cookies.txt in the working directory",
+                      extra={"setting": "stream.cookies_file"})
+    message = "all resolver backends failed: " + "; ".join(errors)
+    raise ResolveError(message)
