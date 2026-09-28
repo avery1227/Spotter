@@ -133,6 +133,22 @@ def _resolve_streamlink(url: str, quality: str, timeout_s: float,
     return stream.url
 
 
+class _YtDlpLogger:
+    """Route yt-dlp's warnings into our log; its errors come back as exceptions."""
+
+    def debug(self, msg: str) -> None:
+        pass
+
+    def info(self, msg: str) -> None:
+        pass
+
+    def warning(self, msg: str) -> None:
+        log.warning("yt-dlp: %s", msg)
+
+    def error(self, msg: str) -> None:
+        pass
+
+
 def _resolve_ytdlp(url: str, quality: str, timeout_s: float,
                    cookies_file: Optional[str] = None) -> str:
     try:
@@ -154,7 +170,7 @@ def _resolve_ytdlp(url: str, quality: str, timeout_s: float,
 
     opts = {
         "quiet": True,
-        "no_warnings": True,
+        "logger": _YtDlpLogger(),
         "format": fmt,
         "socket_timeout": timeout_s,
         "noplaylist": True,

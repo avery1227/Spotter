@@ -6,7 +6,11 @@ pymap3d>=3.0
 # Video ingest / decode
 av>=12,<19
 streamlink>=6.7
-yt-dlp>=2024.4.9
+# [default] pulls in yt-dlp-ejs. YouTube now serves its stream URLs behind a
+# JavaScript challenge, which yt-dlp solves with ejs plus a JS runtime (deno);
+# without them signed-in requests fail with "The page needs to be reloaded".
+yt-dlp[default]>=2025.11.12
+deno>=2.0
 requests>=2.31
 
 # Calibration tooling and drift template matching.
