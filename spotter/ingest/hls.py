@@ -65,6 +65,7 @@ class HLSReader:
         self.quality = cfg.get("stream.quality", "best")
         self.resolver_timeout_s = float(cfg.get("stream.resolver_timeout_s", 60.0))
         self.cookies_file = cfg.get("stream.cookies_file", "") or None
+        self._logged_cookies_file: Optional[str] = ""
         self.reresolve_interval_s = float(cfg.get("stream.reresolve_interval_s", 10800.0))
         self.read_timeout_s = float(cfg.get("stream.read_timeout_s", 20.0))
         self.playlist_poll_s = float(cfg.get("stream.pdt.playlist_poll_s", 4.0))
@@ -121,12 +122,16 @@ class HLSReader:
         return remaining is not None and remaining < EXPIRY_MARGIN_S
 
     def _resolve(self) -> None:
+        cookies_file = find_cookies_file(self.cookies_file)
+        if cookies_file != self._logged_cookies_file:
+            log.info("youtube cookies", extra={"file": cookies_file or "none"})
+            self._logged_cookies_file = cookies_file
         self._resolved = resolve_stream(
             self.url,
             resolver=self.resolver,
             quality=self.quality,
             timeout_s=self.resolver_timeout_s,
-            cookies_file=find_cookies_file(self.cookies_file),
+            cookies_file=cookies_file,
         )
         # A fresh playlist URL means fresh sequence numbering may not line up
         # with what we saw before; re-anchor at the live edge.
