@@ -21,6 +21,10 @@ FPM_TO_MPS = 0.00508
 class TrackKind(str, Enum):
     AIRCRAFT = "aircraft"
     SHIP = "ship"
+    #: Computed from orbital elements by :mod:`spotter.sky.satellites`.
+    SATELLITE = "satellite"
+    #: A located strike from :mod:`spotter.sky.lightning`.
+    LIGHTNING = "lightning"
 
     def __str__(self) -> str:  # so f-strings and config lookups read naturally
         return self.value
@@ -75,6 +79,10 @@ class Position:
 
 def category_of(labels: dict, kind: TrackKind) -> str:
     """Map a track to a colour/priority category used by the renderer."""
+    if kind is TrackKind.SATELLITE:
+        return "satellite" if labels.get("sunlit", True) else "satellite_shadow"
+    if kind is TrackKind.LIGHTNING:
+        return "lightning"
     if kind is TrackKind.AIRCRAFT:
         if labels.get("military"):
             return "aircraft_military"

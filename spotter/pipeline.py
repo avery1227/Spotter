@@ -34,6 +34,7 @@ from .logging_setup import get_logger
 from .output.encoder import AUDIO_PROBE_BYTES, RTMPOutput
 from .projection import TargetProjector
 from .render.overlay import OverlayRenderer, OverlayStatus
+from .sky.layers import SkyLayers
 from .tracks.manager import TrackManager
 from .util import utcnow
 
@@ -86,6 +87,7 @@ class Pipeline:
         self.output: Optional[RTMPOutput] = None
 
         self.tracks = TrackManager(cfg)
+        self.sky = SkyLayers(cfg)
         self.drift = DriftDetector(cfg)
         self.stats = PipelineStats()
 
@@ -301,6 +303,9 @@ class Pipeline:
 
         if not self.offline or self.cfg.get("offline.live_tracks", False):
             self.tracks.start()
+        # Satellites are computed from the frame's own time, so they work in
+        # offline replays too; lightning simply stays empty there.
+        self.sky.start()
 
         frames = self._offline_frames() if self.offline else self._live_frames()
         exit_code = 0
@@ -375,6 +380,8 @@ class Pipeline:
 
         states = self.tracks.store.snapshot_at(event.wall_time)
         targets = self.projector.project(states)
+        sky_targets, effects = self.sky.project(event.wall_time, self.model)
+        targets = targets + sky_targets
 
         report = self.drift.check(event.image) if self.drift.active else None
         if report is not None and report.flagged:
@@ -387,11 +394,12 @@ class Pipeline:
             drift_shift_px=(self.drift.last_report.median_shift_px
                             if self.drift.last_report else None),
             labels_hidden=self.drift.flagged and self._hide_labels_on_drift,
-            attributions=self.tracks.attributions(),
+            attributions=self.tracks.attributions() + self.sky.attributions(),
             track_counts=self.tracks.store.counts(),
         )
 
-        self.renderer.render(event.image, targets, event.wall_time, status)
+        self.renderer.render(event.image, targets, event.wall_time, status,
+                             effects=effects)
 
         if self.frame_hub is not None:
             self.frame_hub.publish(event.image, {
@@ -428,6 +436,7 @@ class Pipeline:
             "output": self.output.status(),
             "drift": self.drift.status(),
             "decode_errors": self.stats.decode_errors,
+            "sky": self.sky.status(),
         }
         if self._reader is not None:
             payload["ingest"] = self._reader.status()
@@ -449,8 +458,9 @@ class Pipeline:
             "frame_time": last.isoformat() if last else None,
             "lag_s": round((utcnow() - last).total_seconds(), 2) if last else None,
             "tracks": self.tracks.store.counts(),
-            "attributions": self.tracks.attributions(),
+            "attributions": self.tracks.attributions() + self.sky.attributions(),
             "groups": [g.status() for g in self.tracks.groups],
+            "sky": self.sky.status(),
             "drift": self.drift.status(),
             "offline": self.offline,
             "waiting_for_calibration": self.waiting_for_calibration,
@@ -470,7 +480,8 @@ class Pipeline:
         log.info("shutting down")
         self.stop_event.set()
         for name, closer in (("reader", self._reader), ("player", self._player),
-                             ("tracks", self.tracks), ("output", self.output)):
+                             ("tracks", self.tracks), ("sky", self.sky),
+                             ("output", self.output)):
             if closer is None:
                 continue
             try:

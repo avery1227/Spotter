@@ -178,6 +178,11 @@ class TargetProjector:
                                 self.model.refraction_k, self.horizon_slack_m)
 
 
+#: Rare and brief, so they are never the labels the cap drops. Each layer
+#: limits its own count, so these cannot crowd everything else out.
+PRIORITY_KINDS = (TrackKind.SATELLITE, TrackKind.LIGHTNING)
+
+
 def sort_by_priority(targets: Sequence[ProjectedTarget]) -> list[ProjectedTarget]:
-    """Nearest first. Used to decide which labels survive the declutter cap."""
-    return sorted(targets, key=lambda t: t.range_m)
+    """Sky events first, then nearest first. Decides which labels survive the cap."""
+    return sorted(targets, key=lambda t: (t.kind not in PRIORITY_KINDS, t.range_m))
