@@ -23,6 +23,13 @@ stream:
   quality: best                 # streamlink quality string / yt-dlp format pref
   resolver_timeout_s: 60
 
+  # Netscape-format cookies.txt sent to YouTube. Needed when YouTube answers
+  # "Sign in to confirm you're not a bot", which it does for most datacenter
+  # and VPS IPs. Left empty, ./cookies.txt is used if present. Export from a
+  # logged-in browser (e.g. the "Get cookies.txt LOCALLY" extension); a
+  # throwaway Google account is wise, since the cookies are a login.
+  cookies_file: ""
+
   # Proactively re-resolve the manifest before the signed URL expires.
   # YouTube live URLs are typically good for a few hours; refresh well before.
   reresolve_interval_s: 10800

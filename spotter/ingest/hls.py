@@ -24,7 +24,7 @@ import requests
 from ..logging_setup import get_logger
 from ..util import Backoff
 from .playlist import MediaPlaylist, Segment, parse_media_playlist
-from .resolver import ResolvedStream, ResolveError, resolve_stream
+from .resolver import ResolvedStream, ResolveError, find_cookies_file, resolve_stream
 
 log = get_logger(__name__)
 
@@ -64,6 +64,7 @@ class HLSReader:
         self.resolver = cfg.get("stream.resolver", "streamlink")
         self.quality = cfg.get("stream.quality", "best")
         self.resolver_timeout_s = float(cfg.get("stream.resolver_timeout_s", 60.0))
+        self.cookies_file = cfg.get("stream.cookies_file", "") or None
         self.reresolve_interval_s = float(cfg.get("stream.reresolve_interval_s", 10800.0))
         self.read_timeout_s = float(cfg.get("stream.read_timeout_s", 20.0))
         self.playlist_poll_s = float(cfg.get("stream.pdt.playlist_poll_s", 4.0))
@@ -125,6 +126,7 @@ class HLSReader:
             resolver=self.resolver,
             quality=self.quality,
             timeout_s=self.resolver_timeout_s,
+            cookies_file=find_cookies_file(self.cookies_file),
         )
         # A fresh playlist URL means fresh sequence numbering may not line up
         # with what we saw before; re-anchor at the live edge.
