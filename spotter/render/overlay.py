@@ -90,7 +90,7 @@ class OverlayRenderer:
     # -- main entry point ---------------------------------------------------
     def render(self, image: np.ndarray, targets: Sequence[ProjectedTarget],
                frame_time: datetime, status: Optional[OverlayStatus] = None,
-               now: Optional[float] = None) -> None:
+               now: Optional[float] = None, effects: Sequence = ()) -> None:
         """Draw onto ``image`` in place. ``image`` must be (H, W, 4) BGRA uint8."""
         status = status or OverlayStatus()
         height, width = image.shape[:2]
@@ -107,6 +107,10 @@ class OverlayRenderer:
             self._draw_horizon(canvas, width, height)
         if self.debug_landmarks and self.model is not None:
             self._draw_landmarks(canvas)
+
+        # Flashes go under everything: they are scenery, the labels are data.
+        for effect in effects:
+            self._draw_bolt(canvas, effect)
 
         if not status.labels_hidden:
             self._draw_targets(canvas, targets, width, height, now, dt)
@@ -256,6 +260,65 @@ class OverlayRenderer:
                               skia.Paint(Color=with_alpha(color, box.alpha),
                                          AntiAlias=True))
             y += self._line_height(font)
+
+    def _draw_bolt(self, canvas, effect) -> None:
+        """A lightning channel from cloud to ground, with a glow around it.
+
+        The jagged path is seeded by the strike, so the same bolt keeps its
+        shape across the frames of one flash instead of crawling.
+        """
+        dx = effect.ground_u - effect.top_u
+        dy = effect.ground_v - effect.top_v
+        length = float(np.hypot(dx, dy))
+        if length < 2.0 or effect.intensity <= 0.0:
+            return
+
+        rng = np.random.default_rng(effect.seed)
+        segments = max(6, min(18, int(length / 14)))
+        # Perpendicular unit vector, for the sideways jitter.
+        px, py = -dy / length, dx / length
+        path = skia.Path()
+        path.moveTo(effect.top_u, effect.top_v)
+        branch_at = int(rng.integers(2, max(3, segments - 2)))
+        branch_from = None
+        for i in range(1, segments + 1):
+            t = i / segments
+            jitter = 0.0 if i == segments else rng.normal(0.0, length * 0.035)
+            x = effect.top_u + dx * t + px * jitter
+            y = effect.top_v + dy * t + py * jitter
+            path.lineTo(x, y)
+            if i == branch_at:
+                branch_from = (x, y)
+
+        if branch_from is not None:
+            side = 1.0 if rng.random() < 0.5 else -1.0
+            bx, by = branch_from
+            for _ in range(3):
+                nx = bx + dx * 0.12 + px * side * length * rng.uniform(0.05, 0.12)
+                ny = by + dy * 0.12 + py * side * length * rng.uniform(0.05, 0.12)
+                path.moveTo(bx, by)
+                path.lineTo(nx, ny)
+                bx, by = nx, ny
+
+        color = self.theme.color("lightning", 0xFFFFF59D)
+        alpha = effect.intensity
+        width = max(1.2, min(3.0, length / 120.0))
+
+        # Cloud glow at the top of the channel.
+        glow_r = max(12.0, length * 0.35)
+        canvas.drawCircle(effect.top_u, effect.top_v, glow_r, skia.Paint(
+            Color=with_alpha(color, 0.35 * alpha), AntiAlias=True,
+            MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle,
+                                                glow_r * 0.5)))
+        canvas.drawPath(path, skia.Paint(
+            Color=with_alpha(color, 0.55 * alpha), AntiAlias=True,
+            StrokeWidth=width * 4.0, Style=skia.Paint.kStroke_Style,
+            StrokeJoin=skia.Paint.kRound_Join,
+            MaskFilter=skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, width * 2.0)))
+        canvas.drawPath(path, skia.Paint(
+            Color=with_alpha(0xFFFFFFFF, alpha), AntiAlias=True,
+            StrokeWidth=width, Style=skia.Paint.kStroke_Style,
+            StrokeJoin=skia.Paint.kRound_Join))
 
     # -- chrome -------------------------------------------------------------
     def _draw_corner(self, canvas, width, height, frame_time, status) -> None:

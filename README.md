@@ -413,6 +413,30 @@ so it will not trigger failover. The on-screen attribution only credits a source
 that has actually delivered reports, so a silent receiver is not advertised as
 supplying data.
 
+### Satellites and lightning
+
+These are not track feeds, so they live under `sky:` rather than `tracks:`,
+but they are projected through the same calibration.
+
+**Satellites** are propagated with SGP4 from CelesTrak's orbital elements
+(`stations` and `visual` groups by default), fetched twice a day and cached in
+`state/satellites.tle`. A camera looking along the water only sees the sky's
+lowest ~15 degrees, which is where a satellite 1,000-2,500 km away sits, so
+passes through the frame are common: from Long Island Sound, most ISS and
+Tiangong passes cross it. Each label says whether the satellite is sunlit or
+in Earth's shadow, since only a sunlit one against a dark sky can actually be
+seen. In daylight only `always_show` (the stations) stay labelled.
+Positions use astronomical refraction, not the terrestrial model ships use,
+and agree with skyfield to about 0.003 degrees.
+
+**Lightning** comes from the Blitzortung.org community network over a
+websocket (free for private, non-commercial use). A located strike arrives
+4-18 seconds after it happens, depending on the region; frames are rendered
+further behind real time than that, so the flash is drawn on the frame of the
+strike, as a channel from the ground up to `bolt_top_m`, with a label for the
+newest few. A strike that arrives after its frame still flashes, and counts
+as `late` in the status: if that number climbs, raise `stream.encoder_delay_s`.
+
 ---
 
 ## Output
@@ -771,6 +795,7 @@ spotter/
                source failover, manager
   calib/       camera model, control points, solver
   render/      theme, declutter, Skia overlay
+  sky/         satellites (SGP4 + CelesTrak), lightning (Blitzortung), astronomy
   web/         Flask API, calibration page, live monitor
   output/      ffmpeg encoder and paced writer
   geodesy.py   ENU, refraction, horizon

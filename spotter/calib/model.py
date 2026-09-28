@@ -168,9 +168,31 @@ class CameraModel:
         r2 = x_n * x_n + y_n * y_n
         radial = 1.0 + self.k1 * r2 + self.k2 * r2 * r2
 
+        # Past the radius where the distortion polynomial turns over, a point
+        # far outside the view folds back into the frame. Those pixels are as
+        # meaningless as ones behind the camera, so report them the same way.
+        in_front = in_front & (r2 <= self.max_valid_r2)
+
         u = self.cx + self.focal_px * x_n * radial
         v = self.cy + self.focal_px * y_n * radial
         return np.column_stack([u, v]), in_front, depth
+
+    @property
+    def max_valid_r2(self) -> float:
+        """Largest squared undistorted radius at which distortion is monotonic.
+
+        The distorted radius is ``r (1 + k1 r^2 + k2 r^4)``; its derivative
+        ``1 + 3 k1 s + 5 k2 s^2`` (with ``s = r^2``) first reaches zero here.
+        """
+        a, b = 5.0 * self.k2, 3.0 * self.k1
+        if abs(a) < 1e-15:
+            return -1.0 / b if b < 0 else float("inf")
+        disc = b * b - 4.0 * a
+        if disc < 0:
+            return float("inf")
+        roots = [(-b - np.sqrt(disc)) / (2.0 * a), (-b + np.sqrt(disc)) / (2.0 * a)]
+        positive = [r for r in roots if r > 0]
+        return float(min(positive)) if positive else float("inf")
 
     def project_geodetic(self, lat, lon, alt_m, refract: bool = True):
         """Project geodetic positions straight to pixels."""

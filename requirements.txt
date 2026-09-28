@@ -13,6 +13,9 @@ yt-dlp[default]>=2025.11.12
 deno>=2.0
 requests>=2.31
 
+# Satellite orbits (SGP4 propagation of CelesTrak elements)
+sgp4>=2.22
+
 # Calibration tooling and drift template matching.
 # NOT the headless build: `calibrate.py click` opens a window, and
 # opencv-python-headless reports "The function is not implemented" for

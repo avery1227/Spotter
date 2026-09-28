@@ -34,6 +34,15 @@ SHIP_TYPE_EXACT = {
 }
 
 
+#: Colours for categories added after many config.yaml files were written.
+#: Anything in the config's ``render.colors`` still wins.
+DEFAULT_COLORS = {
+    "satellite": "#E1BEE7",
+    "satellite_shadow": "#8E7CA0",
+    "lightning": "#FFF59D",
+}
+
+
 def parse_color(value, default: int = 0xFFFFFFFF) -> int:
     """Parse ``#RRGGBB`` or ``#RRGGBBAA`` into a Skia ARGB integer."""
     if isinstance(value, int):
@@ -117,7 +126,8 @@ class Theme:
             raw_colors = raw_colors.raw()
 
         theme = cls(
-            colors={k: parse_color(v) for k, v in raw_colors.items()},
+            colors={k: parse_color(v)
+                    for k, v in {**DEFAULT_COLORS, **raw_colors}.items()},
             font_size=float(render.get("font_size", 15)),
             font_size_small=float(render.get("font_size_small", 12)),
             marker_radius=float(render.get("marker_radius", 5)),
@@ -184,6 +194,11 @@ def build_label_lines(target, verbose: bool = False) -> list[LabelLine]:
     position = target.state.position
     lines: list[LabelLine] = []
 
+    if target.kind is TrackKind.SATELLITE:
+        return _satellite_lines(target, verbose)
+    if target.kind is TrackKind.LIGHTNING:
+        return _lightning_lines(target, verbose)
+
     if target.kind is TrackKind.AIRCRAFT:
         title = (labels.get("callsign") or labels.get("registration")
                  or labels.get("icao") or "aircraft")
@@ -229,4 +244,41 @@ def build_label_lines(target, verbose: bool = False) -> list[LabelLine]:
                      f"  el {target.elevation_deg:+.2f}°"
                      f"  {position.mode}")
     lines.append(LabelLine(distance, small=True, dim=True))
+    return lines
+
+
+def _satellite_lines(target, verbose: bool) -> list[LabelLine]:
+    labels = target.labels
+    lines = [LabelLine(str(labels.get("name") or "satellite"), bold=True)]
+    altitude_km = target.state.position.alt_m / 1000.0
+    lines.append(LabelLine(
+        f"{altitude_km:,.0f} km up  ·  {target.range_m / 1000:,.0f} km away",
+        small=True))
+    if not labels.get("sunlit", True):
+        visibility = "in Earth's shadow"
+    elif labels.get("sky") == "day":
+        visibility = "sunlit · daylight sky"
+    else:
+        visibility = "sunlit"
+    if verbose:
+        visibility += (f"   brg {target.bearing_deg:.0f}°"
+                       f"  el {target.elevation_deg:+.1f}°")
+    lines.append(LabelLine(visibility, small=True, dim=True))
+    return lines
+
+
+def _lightning_lines(target, verbose: bool) -> list[LabelLine]:
+    labels = target.labels
+    lines = [LabelLine("⚡ Lightning", bold=True)]
+    distance = labels.get("distance_km")
+    age = labels.get("age_s")
+    parts = []
+    if distance is not None:
+        parts.append(format_distance(float(distance) * 1000.0))
+    if age is not None:
+        parts.append("now" if age < 1.5 else f"{age:.0f} s ago")
+    lines.append(LabelLine("  ·  ".join(parts), small=True))
+    if verbose:
+        lines.append(LabelLine(f"brg {target.bearing_deg:.0f}°", small=True,
+                               dim=True))
     return lines

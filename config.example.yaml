@@ -238,6 +238,47 @@ tracks:
     all_failed_cooldown_s: 30.0
 
 # -----------------------------------------------------------------------------
+# 3b. Sky: satellites and lightning
+# -----------------------------------------------------------------------------
+# Neither comes from a track feed. Satellite positions are computed from
+# orbital elements for each frame's time; lightning strikes are single events.
+# Both are projected through the same calibration as aircraft and ships.
+sky:
+  satellites:
+    enabled: true
+    # CelesTrak groups: "stations" (ISS, Tiangong), "visual" (the ~150 brightest).
+    # "starlink" adds thousands and will crowd the frame; "last-30-days" catches
+    # fresh launches, including new Starlink trains.
+    groups: [stations, visual]
+    # Elements are cached here and refetched when older than refresh_h.
+    # CelesTrak blocks clients that fetch the same group more than every 2 h.
+    cache: ./state/satellites.tle
+    refresh_h: 12
+    # Only draw satellites at least this high (apparent elevation, degrees).
+    min_elevation_deg: 0.0
+    # A satellite in Earth's shadow is invisible to the eye. Keep showing it
+    # (dimmed, labelled "in Earth's shadow"), or hide it.
+    show_in_shadow: true
+    # Satellites cannot be seen against a daylight sky; label them anyway?
+    show_in_daylight: false
+    # Always labelled, day or night, lit or not.
+    always_show: [ISS, Tiangong]
+
+  lightning:
+    # Blitzortung.org community network: free for private, non-commercial use.
+    enabled: true
+    # Ignore strikes farther than this from the camera. Storm tops are
+    # visible over the horizon out to roughly 300 km at night.
+    max_range_km: 300
+    # How long the bolt is drawn, and how long its label stays up.
+    flash_s: 1.2
+    label_s: 20
+    # Label only the newest few strikes; the rest still flash.
+    max_labels: 3
+    # The drawn channel runs from the ground up to this altitude (metres).
+    bolt_top_m: 6000
+
+# -----------------------------------------------------------------------------
 # 4. Projection / visibility
 # -----------------------------------------------------------------------------
 projection:
@@ -286,6 +327,9 @@ render:
     ship_tanker: "#EF9A9A"
     ship_cargo: "#80CBC4"
     unknown: "#B0BEC5"
+    satellite: "#E1BEE7"
+    satellite_shadow: "#8E7CA0"   # satellite in Earth's shadow (not visible)
+    lightning: "#FFF59D"
     label_bg: "#0B1622CC"
     label_fg: "#FFFFFF"
     label_dim: "#B9C6D2"
