@@ -425,7 +425,8 @@ lowest ~15 degrees, which is where a satellite 1,000-2,500 km away sits, so
 passes through the frame are common: from Long Island Sound, most ISS and
 Tiangong passes cross it. Each label says whether the satellite is sunlit or
 in Earth's shadow, since only a sunlit one against a dark sky can actually be
-seen. In daylight only `always_show` (the stations) stay labelled.
+seen. Rocket stages and debris are skipped, satellites in Earth's shadow are
+hidden, and in daylight only `always_show` (the stations) stay labelled.
 Positions use astronomical refraction, not the terrestrial model ships use,
 and agree with skyfield to about 0.003 degrees.
 
