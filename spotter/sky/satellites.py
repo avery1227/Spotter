@@ -16,6 +16,7 @@ with astronomical refraction instead.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from datetime import datetime
@@ -42,6 +43,11 @@ DISPLAY_NAMES = {
     "CSS (TIANHE)": "Tiangong",
     "HST": "Hubble",
 }
+
+#: Spent rocket stages and debris, by CelesTrak's naming convention ("R/B",
+#: "DEB"), plus the odd stage catalogued without it. They are real, bright
+#: objects, but not what anyone watching means by "a satellite".
+DEFAULT_EXCLUDE = [r"\bR/B\b", r"\bDEB\b", r"^ATLAS CENTAUR"]
 
 #: Two objects closer than this are drawn as one. Docked modules and visiting
 #: vehicles are catalogued separately but share the station's orbit.
@@ -175,10 +181,12 @@ class SatelliteLayer:
             timeout_s=float(node.get("timeout_s", 20.0)),
         )
         self.min_elevation_deg = float(node.get("min_elevation_deg", 0.0))
-        self.show_in_shadow = bool(node.get("show_in_shadow", True))
+        self.show_in_shadow = bool(node.get("show_in_shadow", False))
         # Nothing but the Sun and Moon is visible in a daylight sky, so by
         # default only the stations keep their labels then.
         self.show_in_daylight = bool(node.get("show_in_daylight", False))
+        patterns = node.get("exclude_names", DEFAULT_EXCLUDE)
+        self.exclude = [re.compile(str(p), re.IGNORECASE) for p in (patterns or [])]
         self.always_show = {str(n) for n in (node.get("always_show",
                                                       ["ISS", "Tiangong"]) or [])}
         self.margin_px = float(cfg.get("projection.frame_margin_px", 80))
@@ -236,6 +244,9 @@ class SatelliteLayer:
 
         records, names, ids = [], [], []
         for name, line1, line2 in entries:
+            if (DISPLAY_NAMES.get(name, name) not in self.always_show
+                    and any(p.search(name) for p in self.exclude)):
+                continue
             try:
                 records.append(Satrec.twoline2rv(line1, line2))
             except Exception:

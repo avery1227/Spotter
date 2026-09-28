@@ -153,6 +153,38 @@ def test_satellites_below_the_horizon_are_not_drawn(tmp_path):
     assert layer.project(ISS_PASS + timedelta(minutes=46), camera()) == []
 
 
+def test_rocket_bodies_and_debris_are_skipped(tmp_path):
+    cache = tmp_path / "sats.tle"
+    cache.write_text(ISS_TLE.replace("ISS (ZARYA)", "SL-16 R/B")
+                     + POISK_TLE.replace("POISK", "COSMOS 2251 DEB"))
+    cfg = sky_config(tmp_path, satellites={"cache": str(cache),
+                                           "show_in_daylight": True})
+    layer = SatelliteLayer(cfg)
+    layer.catalog.load_cache()
+    assert layer.project(ISS_PASS, camera()) == []
+
+    everything = SatelliteLayer(sky_config(tmp_path, satellites={
+        "cache": str(cache), "show_in_daylight": True, "exclude_names": []}))
+    everything.catalog.load_cache()
+    assert len(everything.project(ISS_PASS, camera())) == 1
+
+
+def test_satellites_in_shadow_are_hidden_unless_asked_for(tmp_path):
+    cache = tmp_path / "sats.tle"
+    cache.write_text(ISS_TLE.replace("ISS (ZARYA)", "SOME SATELLITE"))
+    # 20:08 EDT: dark sky, and the orbit is in Earth's shadow by then.
+    when = datetime(2026, 9, 29, 0, 8, 30, tzinfo=timezone.utc)
+    shown = SatelliteLayer(sky_config(tmp_path, satellites={
+        "cache": str(cache), "show_in_shadow": True}))
+    shown.catalog.load_cache()
+    targets = shown.project(when, camera())
+    assert targets and targets[0].labels["sunlit"] is False
+
+    hidden = SatelliteLayer(sky_config(tmp_path, satellites={"cache": str(cache)}))
+    hidden.catalog.load_cache()
+    assert hidden.project(when, camera()) == []
+
+
 def test_daylight_hides_all_but_the_always_shown(tmp_path):
     cache = tmp_path / "sats.tle"
     cache.write_text(ISS_TLE.replace("ISS (ZARYA)", "SOME ROCKET BODY"))

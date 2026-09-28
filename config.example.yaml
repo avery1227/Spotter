@@ -256,9 +256,12 @@ sky:
     refresh_h: 12
     # Only draw satellites at least this high (apparent elevation, degrees).
     min_elevation_deg: 0.0
-    # A satellite in Earth's shadow is invisible to the eye. Keep showing it
-    # (dimmed, labelled "in Earth's shadow"), or hide it.
-    show_in_shadow: true
+    # A satellite in Earth's shadow is invisible to the eye. Hide it, or show
+    # it dimmed and labelled "in Earth's shadow".
+    show_in_shadow: false
+    # Skip catalogue names matching these (regular expressions): spent rocket
+    # stages ("R/B") and debris ("DEB"). Set to [] to show everything.
+    exclude_names: ['\bR/B\b', '\bDEB\b', '^ATLAS CENTAUR']
     # Satellites cannot be seen against a daylight sky; label them anyway?
     show_in_daylight: false
     # Always labelled, day or night, lit or not.
