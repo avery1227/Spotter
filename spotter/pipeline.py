@@ -358,8 +358,7 @@ class Pipeline:
             reconnecting=True,
             reconnecting_since_s=self.output.starved_for_s(),
             drift_flagged=self.drift.flagged,
-            drift_shift_px=(self.drift.last_report.median_shift_px
-                            if self.drift.last_report else None),
+            drift_shift_px=self.drift.shift_px,
             labels_hidden=self.drift.flagged and self._hide_labels_on_drift,
         ))
         self.output.hold_frame(frame)
@@ -391,8 +390,7 @@ class Pipeline:
             reconnecting=self.output.should_show_badge(),
             reconnecting_since_s=self.output.starved_for_s(),
             drift_flagged=self.drift.flagged,
-            drift_shift_px=(self.drift.last_report.median_shift_px
-                            if self.drift.last_report else None),
+            drift_shift_px=self.drift.shift_px,
             labels_hidden=self.drift.flagged and self._hide_labels_on_drift,
             attributions=self.tracks.attributions() + self.sky.attributions(),
             track_counts=self.tracks.store.counts(),

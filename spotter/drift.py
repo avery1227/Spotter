@@ -230,6 +230,10 @@ class DriftDetector:
         self._consecutive_exceeded = 0
         self.flagged = False
         self.last_report: Optional[DriftReport] = None
+        #: The newest check that matched enough patches to measure anything.
+        #: An inconclusive check (night, fog) leaves the flag as it was, so the
+        #: badge must keep quoting the shift that raised it, not a placeholder.
+        self.last_measured: Optional[DriftReport] = None
 
         if self.enabled:
             self._load()
@@ -283,6 +287,7 @@ class DriftDetector:
 
         shifts = np.array([np.hypot(m.dx, m.dy) for m in good])
         report.median_shift_px = float(np.median(shifts))
+        self.last_measured = report
         report.exceeded = report.median_shift_px > self.warn_shift_px
 
         if report.exceeded:
@@ -345,6 +350,11 @@ class DriftDetector:
         matched = bool(max_val >= self.min_confidence)
         return PatchMatch(ref.name, float(dx), float(dy), float(max_val), matched)
 
+    @property
+    def shift_px(self) -> Optional[float]:
+        """Latest measured median shift, ignoring inconclusive checks."""
+        return self.last_measured.median_shift_px if self.last_measured else None
+
     def status(self) -> dict:
         if not self.active:
             return {"enabled": False}
@@ -354,7 +364,9 @@ class DriftDetector:
             "consecutive_exceeded": self._consecutive_exceeded,
             "consecutive_needed": self.consecutive_needed,
             "threshold_px": self.warn_shift_px,
-            "exceeded": bool(self.last_report and self.last_report.exceeded),
-            "median_shift_px": (round(self.last_report.median_shift_px, 2)
-                                if self.last_report else None),
+            "exceeded": bool(self.last_measured and self.last_measured.exceeded),
+            "median_shift_px": (round(self.shift_px, 2)
+                                if self.shift_px is not None else None),
+            "last_check": (self.last_report.note or "measured")
+            if self.last_report else None,
         }
