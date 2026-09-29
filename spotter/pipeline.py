@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Iterator, Optional
 
+from .calib.aircraft import FreezeCapture, FreezeRequest, build_capture
 from .calib.model import CameraModel
 from .drift import DriftDetector
 from .ingest.decoder import SegmentDecodeError, SegmentDecoder
@@ -104,6 +105,8 @@ class Pipeline:
         #: True while the web UI is up but there is no calibration to project
         #: through yet. The monitor page shows this instead of empty stats.
         self.waiting_for_calibration = False
+        self._freeze_lock = threading.Lock()
+        self._freeze_request: Optional[FreezeRequest] = None
 
     # -- setup --------------------------------------------------------------
     def _load_calibration(self, width: int, height: int) -> CameraModel:
@@ -378,6 +381,8 @@ class Pipeline:
             self._feeder.advance_to(event.wall_time)
 
         states = self.tracks.store.snapshot_at(event.wall_time)
+        if self._freeze_request is not None:
+            self._fulfil_freeze(event, states)
         targets = self.projector.project(states)
         sky_targets, effects = self.sky.project(event.wall_time, self.model)
         targets = targets + sky_targets
@@ -415,6 +420,41 @@ class Pipeline:
         self.stats.last_frame_time = event.wall_time
         self.stats.render_ms_ewma = (0.98 * self.stats.render_ms_ewma
                                      + 0.02 * elapsed_ms)
+
+    # -- freeze-frame capture for aircraft calibration -----------------------
+    def capture_freeze(self, timeout_s: float = 5.0) -> FreezeCapture:
+        """Hand the next decoded frame, un-drawn-on, to another thread.
+
+        Called from the web UI. The copy and the aircraft snapshot are taken in
+        the pipeline thread, from the very states that frame is drawn with.
+        """
+        if self.model is None or self.output is None:
+            raise RuntimeError("the pipeline has not started drawing frames yet")
+        request = FreezeRequest()
+        with self._freeze_lock:
+            self._freeze_request = request
+        if not request.done.wait(timeout_s):
+            with self._freeze_lock:
+                if self._freeze_request is request:
+                    self._freeze_request = None
+            raise TimeoutError("no frame arrived to freeze; is the stream running?")
+        if request.error:
+            raise RuntimeError(request.error)
+        return request.capture
+
+    def _fulfil_freeze(self, event: VideoFrameEvent, states) -> None:
+        with self._freeze_lock:
+            request, self._freeze_request = self._freeze_request, None
+        if request is None:
+            return
+        try:
+            request.capture = build_capture(
+                event.image, event.wall_time, states, self.model,
+                self.cfg.get("stream.encoder_delay_s"))
+        except Exception as exc:  # pragma: no cover - must not kill the frame
+            log.exception("freeze capture failed")
+            request.error = f"{type(exc).__name__}: {exc}"
+        request.done.set()
 
     def _periodic(self, event: VideoFrameEvent) -> None:
         now = time.monotonic()

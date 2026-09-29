@@ -24,8 +24,14 @@
 
   <!-- ─────────── left: the camera frame ─────────── -->
   <section class="panel frame-panel">
+    <div class="modebar" role="tablist">
+      <button class="mode active" data-set-mode="points" title="A spot you can find on the map">Points</button>
+      <button class="mode" data-set-mode="lines" title="A wall, path or edge traced on the frame and the map">Lines</button>
+      <button class="mode" data-set-mode="aircraft" title="Freeze the stream and click where the planes really are">Aircraft</button>
+    </div>
+
     <div class="panel-head">
-      <h2>1 · Click the landmark in the frame</h2>
+      <h2 id="frameHeading">1 · Click the landmark in the frame</h2>
       <div class="controls">
         <button id="grabBtn" class="btn">Grab fresh frame</button>
         <label class="check"><input type="checkbox" id="showReproj"> show fit</label>
@@ -36,6 +42,11 @@
           <button class="btn small" id="zoomIn">+</button>
         </span>
       </div>
+    </div>
+
+    <div id="freezeBanner" class="freeze-banner" style="display:none">
+      <span>Frozen at <b id="freezeTime" class="mono"></b> · <span id="freezeCount"></span></span>
+      <button id="unfreezeBtn" class="btn small">Back to calibration frame</button>
     </div>
 
     <div id="frameWrap" class="frame-wrap">
@@ -55,12 +66,7 @@
       <div class="pixel-readout">
         <div>pixel</div>
         <div id="pixelReadout" class="mono big">—</div>
-        <p class="muted small">
-          Click a feature you can also find on the map: a jetty tip, a
-          breakwater light, a chimney, a distinctive rock. Mix near and far —
-          points strung along the horizon leave pitch, height and focal length
-          trading off against each other.
-        </p>
+        <p class="muted small" id="modeHint"></p>
       </div>
     </div>
   </section>
@@ -99,24 +105,91 @@
       </p>
     </div>
 
-    <div class="panel-head">
-      <h2>2 · Put the same spot on the map</h2>
+    <div class="panel-head" data-mode="points lines">
+      <h2 id="mapHeading">2 · Put the same spot on the map</h2>
     </div>
-    <div id="map"></div>
-    <div class="maprow">
+    <div id="map" data-mode="points lines"></div>
+    <div class="maprow" data-mode="points">
       <input id="pasteBox" type="text" spellcheck="false"
              placeholder="or paste from Google Maps:  41.276123, -72.459456">
       <button id="pasteBtn" class="btn small">Use</button>
     </div>
-    <p class="muted small nomargin">
+    <p class="muted small nomargin" data-mode="points">
       In Google Maps, right-click the spot → click the coordinates at the top of
       the menu to copy them, then paste here.
     </p>
 
-    <div class="panel-head">
+    <!-- ─────────── lines ─────────── -->
+    <div data-mode="lines">
+      <div class="panel-head"><h2>3 · Describe the line and add</h2></div>
+      <p class="muted small nomargin">
+        Trace one feature in the frame (click along it), then trace the
+        <b>same feature</b> on the map. The two tracings don't have to start or
+        end at the same place, but the map one must cover everything you traced
+        in the frame; running it longer is fine. Walls, path edges, the
+        waterline and property dividers all work.
+      </p>
+      <div class="linecounts">
+        <span>frame: <b id="lineImgCount">0</b> pts
+          <button id="lineImgUndo" class="btn small" type="button">undo</button></span>
+        <span>map: <b id="lineMapCount">0</b> pts
+          <button id="lineMapUndo" class="btn small" type="button">undo</button></span>
+        <button id="lineClearBtn" class="btn small" type="button">clear</button>
+      </div>
+      <form id="lineForm" class="pointform">
+        <label>Name <input id="lName" type="text" placeholder="seawall top" required></label>
+        <div class="pair">
+          <label>Height above sea level, m
+            <input id="lElev" type="number" step="0.1" value="0"></label>
+          <label>That height is
+            <select id="lSigma">
+              <option value="0">exact (waterline, known)</option>
+              <option value="0.5">good to ±0.5 m</option>
+              <option value="1" selected>about right (±1 m)</option>
+              <option value="3">a rough guess (±3 m)</option>
+            </select></label>
+        </div>
+        <p class="muted small nomargin">
+          Anything not exact gets its height fitted by the solver, within that
+          range. Near the camera a metre matters (about ½° at 100 m), so for the
+          waterline enter the tide height at the time of the frame if you know it.
+        </p>
+        <button type="submit" class="btn primary">Add line</button>
+      </form>
+      <div class="panel-head"><h2>Lines <span id="lineCount" class="muted"></span></h2></div>
+      <div class="table-wrap">
+        <table id="linesTable">
+          <thead><tr><th></th><th>name</th><th>pts</th><th>height</th><th>err</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ─────────── aircraft ─────────── -->
+    <div data-mode="aircraft">
+      <div class="panel-head"><h2>2 · Freeze, click the plane, pick it</h2></div>
+      <p class="muted small nomargin">
+        When a plane is in view, press <b>Freeze</b>. The stream is caught on
+        one frame, with every aircraft's ADS-B position at that exact moment.
+        Click where the plane <b>really is</b> in the frame, check it's the right
+        one in the list, and add it. Repeat with other planes or fresh freezes;
+        planes flying in different directions also let the solver measure
+        <code>encoder_delay_s</code>.
+      </p>
+      <div class="controls" style="margin-left:0">
+        <button id="freezeBtn" class="btn primary" type="button">Freeze frame + aircraft</button>
+        <span id="freezeHint" class="muted small"></span>
+      </div>
+      <div id="aircraftList" class="aircraft-list"></div>
+      <div class="controls" style="margin-left:0">
+        <button id="addAircraftBtn" class="btn primary" type="button" disabled>Add aircraft point</button>
+      </div>
+    </div>
+
+    <div class="panel-head" data-mode="points">
       <h2>3 · Name it and add</h2>
     </div>
-    <form id="pointForm" class="pointform">
+    <form id="pointForm" class="pointform" data-mode="points">
       <label>Name <input id="fName" type="text" placeholder="jetty_tip" required></label>
       <div class="pair">
         <label>Latitude <input id="fLat" type="text" class="mono" required></label>
@@ -151,6 +224,8 @@
       <label class="check"><input type="checkbox" id="lockPosition"> lock position</label>
       <label class="check"><input type="checkbox" id="lockRoll"> lock roll</label>
       <label class="check"><input type="checkbox" id="lockDistortion"> lock distortion</label>
+      <label class="check" title="With 2+ aircraft points, also measure how far stream.encoder_delay_s is out">
+        <input type="checkbox" id="fitTiming" checked> fit timing</label>
     </div>
     <div class="controls">
       <button id="solveBtn" class="btn">Solve (preview)</button>

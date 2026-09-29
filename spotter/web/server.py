@@ -20,15 +20,18 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
+from ..calib.lines import LineFeature, LineSet, load_lines, save_lines
 from ..calib.model import CameraModel
-from ..calib.points import ControlPoint, ControlPointSet, load_points, save_points
-from ..calib.solver import solve_calibration
+from ..calib.points import (KIND_AIRCRAFT, KIND_LANDMARK, ControlPoint, ControlPointSet,
+                            load_points, save_points)
+from ..calib.solver import prepare_lines, solve_calibration
 from ..config import ConfigError, load_config, update_config_file
 from ..logging_setup import get_logger
 from .frames import FrameHub
@@ -54,10 +57,14 @@ class WebState:
         if not self.frame_path.is_absolute():
             self.frame_path = cfg.root / self.frame_path
         self.points_path = cfg.path("calibration.points", "./points.csv")
+        self.lines_path = cfg.path("calibration.lines", "./lines.json")
         self.calibration_path = cfg.path("calibration.path", "./calibration.json")
 
         #: Last solve result, so the overlay endpoint can draw it.
         self.last_solve = None
+        #: Recent frozen frames, newest last. A few, not one, so a second
+        #: freeze does not pull the image out from under a click in progress.
+        self.freezes: "OrderedDict[str, object]" = OrderedDict()
 
     def reload_config(self) -> None:
         """Re-read config.yaml after the UI has written to it."""
@@ -66,6 +73,7 @@ class WebState:
             raise ConfigError("this config was not loaded from a file")
         self.cfg = load_config(source)
         self.points_path = self.cfg.path("calibration.points", "./points.csv")
+        self.lines_path = self.cfg.path("calibration.lines", "./lines.json")
         self.calibration_path = self.cfg.path("calibration.path",
                                               "./calibration.json")
 
@@ -105,6 +113,18 @@ class WebState:
         except OSError as exc:
             log.warning("could not back up points file",
                         extra={"error": str(exc)})
+
+    def load_line_set(self) -> LineSet:
+        try:
+            return load_lines(self.lines_path)
+        except (ValueError, OSError) as exc:
+            log.warning("could not read lines file", extra={"error": str(exc)})
+            return LineSet()
+
+    def remember_freeze(self, capture) -> None:
+        self.freezes[capture.id] = capture
+        while len(self.freezes) > 4:
+            self.freezes.popitem(last=False)
 
     def frame_size(self) -> tuple[int, int]:
         """Size of the calibration frame, for the solver."""
@@ -195,6 +215,9 @@ def create_app(state: WebState) -> Flask:
             "calibration": model,
             "points_path": str(state.points_path),
             "live": state.pipeline is not None,
+            "can_freeze": state.pipeline is not None
+            and hasattr(state.pipeline, "capture_freeze"),
+            "encoder_delay_s": state.cfg.get("stream.encoder_delay_s"),
         })
 
     # -- camera position ----------------------------------------------------
@@ -283,9 +306,17 @@ def create_app(state: WebState) -> Flask:
                 lat=float(body["lat"]), lon=float(body["lon"]),
                 elev_m=float(body.get("elev_m") or 0.0),
                 enabled=bool(body.get("enabled", True)),
-                note=str(body.get("note") or ""))
+                note=str(body.get("note") or ""),
+                kind=str(body.get("kind") or KIND_LANDMARK),
+                time=str(body.get("time") or ""),
+                delay_s=_opt_float(body.get("delay_s")),
+                ve=_opt_float(body.get("ve")),
+                vn=_opt_float(body.get("vn")),
+                vu=_opt_float(body.get("vu")))
         except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": f"bad point: {exc}"}), 400
+        if point.kind not in (KIND_LANDMARK, KIND_AIRCRAFT):
+            return jsonify({"error": f"unknown point kind '{point.kind}'"}), 400
         if not (-90 <= point.lat <= 90) or not (-180 <= point.lon <= 180):
             return jsonify({"error": "coordinates out of range"}), 400
 
@@ -346,14 +377,17 @@ def create_app(state: WebState) -> Flask:
     def solve():
         body = request.get_json(silent=True) or {}
         point_set = state.load_point_set()
-        if len(point_set.active) < 4:
+        line_set = state.load_line_set()
+        if len(point_set.active) + 2 * len(line_set.active) < 4:
             return jsonify({
-                "error": f"need at least 4 enabled points, have "
-                         f"{len(point_set.active)}"}), 400
+                "error": f"need at least 4 enabled points (a traced line counts "
+                         f"as 2), have {len(point_set.active)} points and "
+                         f"{len(line_set.active)} lines"}), 400
 
         width, height = state.frame_size()
         overrides = {}
-        for key in ("lock_height", "lock_position", "lock_roll", "lock_distortion"):
+        for key in ("lock_height", "lock_position", "lock_roll", "lock_distortion",
+                    "fit_timing"):
             if key in body:
                 overrides[key] = bool(body[key])
 
@@ -366,7 +400,8 @@ def create_app(state: WebState) -> Flask:
 
         try:
             result = solve_calibration(point_set, cfg, width, height,
-                                       run_loo=bool(body.get("loo", True)))
+                                       run_loo=bool(body.get("loo", True)),
+                                       lines=line_set)
         except (ValueError, RuntimeError) as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -381,6 +416,10 @@ def create_app(state: WebState) -> Flask:
                 "max_px": round(result.max_px, 3),
                 "warnings": result.warnings,
                 "per_point": [e.as_dict() for e in result.errors],
+                "n_lines": result.n_lines,
+                "per_line": result.line_errors,
+                "timing_offset_s": result.timing_offset_s,
+                "suggested_encoder_delay_s": result.suggested_encoder_delay_s,
                 "solved_from_image": str(state.frame_path),
                 "solved_via": "web",
             }
@@ -391,6 +430,7 @@ def create_app(state: WebState) -> Flask:
             "summary": result.summary(),
             "model": _model_summary(result.model),
             "points": [e.as_dict() for e in result.errors],
+            "lines": result.line_errors,
             "warnings": result.warnings,
             "saved": bool(body.get("save", False)),
             "pipeline_waiting": bool(
@@ -427,12 +467,166 @@ def create_app(state: WebState) -> Flask:
                                                        uv[i, 1] - point.py))
                 out.append(entry)
 
+        # Each map line as the saved calibration projects it, at the height the
+        # solve settled on, so a bad tracing shows up as two lines that part.
+        fitted = {entry["name"]: entry.get("elev_m")
+                  for entry in (model.meta.get("per_line") or [])}
+        lines_out = []
+        for index, line in enumerate(state.load_line_set().lines):
+            elev = fitted.get(line.name, line.elev_m)
+            shifted = LineFeature(name=line.name, image=line.image, map=line.map,
+                                  elev_m=elev if elev is not None else line.elev_m,
+                                  elev_sigma_m=0.0)
+            samples = prepare_lines(LineSet(lines=[shifted]), model.ref_lat,
+                                    model.ref_lon)[0].samples_enu
+            uv, front, _ = model.project_enu(samples, refract=True)
+            runs, current = [], []
+            for (u, v), ok in zip(uv, front):
+                if ok:
+                    current.append([round(float(u), 1), round(float(v), 1)])
+                elif current:
+                    runs.append(current)
+                    current = []
+            if current:
+                runs.append(current)
+            lines_out.append({"index": index, "name": line.name,
+                              "enabled": line.enabled, "projected": runs})
+
         horizon = model.horizon_polyline()
         return jsonify({
             "points": out,
+            "lines": lines_out,
             "horizon": [[float(x), float(y)] for x, y in horizon],
             "model": _model_summary(model),
         })
+
+    # -- traced lines -------------------------------------------------------
+    @app.route("/api/lines", methods=["GET"])
+    def get_lines():
+        return jsonify({"lines": [line.to_json() for line in state.load_line_set().lines]})
+
+    @app.route("/api/lines", methods=["POST"])
+    def add_line():
+        body = request.get_json(silent=True) or {}
+        try:
+            line = LineFeature.from_json(body)
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"error": f"bad line: {exc}"}), 400
+        with state.lock:
+            line_set = state.load_line_set()
+            line_set.lines.append(line)
+            save_lines(state.lines_path, line_set)
+        return jsonify({"lines": [entry.to_json() for entry in line_set.lines]})
+
+    @app.route("/api/lines/<int:index>", methods=["PATCH", "DELETE"])
+    def modify_line(index: int):
+        with state.lock:
+            line_set = state.load_line_set()
+            if not 0 <= index < len(line_set.lines):
+                return jsonify({"error": "no such line"}), 404
+            # Same guard as points: name the line you mean.
+            expected = request.args.get("name")
+            actual = line_set.lines[index].name
+            if expected is None:
+                return jsonify({"error": "pass ?name=<expected> so a stale page "
+                                         "cannot change the wrong line"}), 400
+            if expected != actual:
+                return jsonify({"error": f"line {index} is '{actual}', not "
+                                         f"'{expected}'; reload the page"}), 409
+            if request.method == "DELETE":
+                removed = line_set.lines.pop(index)
+                save_lines(state.lines_path, line_set)
+                return jsonify({"lines": [e.to_json() for e in line_set.lines],
+                                "removed": removed.to_json()})
+            body = request.get_json(silent=True) or {}
+            line = line_set.lines[index]
+            try:
+                if "name" in body:
+                    line.name = str(body["name"]).strip() or line.name
+                if "enabled" in body:
+                    line.enabled = bool(body["enabled"])
+                if "elev_m" in body:
+                    line.elev_m = float(body["elev_m"])
+                if "elev_sigma_m" in body:
+                    line.elev_sigma_m = float(body["elev_sigma_m"])
+                line.validate()
+            except (TypeError, ValueError) as exc:
+                return jsonify({"error": str(exc)}), 400
+            save_lines(state.lines_path, line_set)
+        return jsonify({"lines": [e.to_json() for e in line_set.lines]})
+
+    # -- frozen frames for aircraft points ---------------------------------
+    @app.route("/api/freeze", methods=["POST"])
+    def freeze():
+        pipeline = state.pipeline
+        if pipeline is None or not hasattr(pipeline, "capture_freeze"):
+            return jsonify({"error": "freezing needs the live pipeline: start "
+                                     "Spotter with 'run', not 'web'"}), 409
+        try:
+            capture = pipeline.capture_freeze(
+                timeout_s=float(state.cfg.get("web.freeze_timeout_s", 8.0)))
+        except TimeoutError as exc:
+            return jsonify({"error": str(exc)}), 504
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        state.remember_freeze(capture)
+        log.info("frame frozen for aircraft calibration", extra={
+            "frame_time": capture.frame_time.isoformat(),
+            "aircraft": len(capture.aircraft)})
+        return jsonify(capture.to_json())
+
+    @app.route("/api/freeze/<freeze_id>.png")
+    def freeze_image(freeze_id: str):
+        import cv2
+
+        capture = state.freezes.get(freeze_id)
+        if capture is None:
+            return jsonify({"error": "that frozen frame has expired; freeze again"}), 404
+        image = capture.image
+        if image.ndim == 3 and image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+        ok, data = cv2.imencode(".png", image)
+        if not ok:
+            return jsonify({"error": "could not encode frame"}), 500
+        response = Response(data.tobytes(), mimetype="image/png")
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        return response
+
+    @app.route("/api/freeze/<freeze_id>/points", methods=["POST"])
+    def add_aircraft_point(freeze_id: str):
+        """Add a plane clicked on a frozen frame, positioned from that capture.
+
+        The position comes from the server's copy of the capture rather than
+        the request, so the page cannot post an aircraft point for a time the
+        frame was not taken at.
+        """
+        capture = state.freezes.get(freeze_id)
+        if capture is None:
+            return jsonify({"error": "that frozen frame has expired; freeze again"}), 404
+        body = request.get_json(silent=True) or {}
+        plane = capture.find(str(body.get("aircraft") or ""))
+        if plane is None:
+            return jsonify({"error": "that aircraft is not in this capture"}), 400
+        try:
+            px, py = float(body["px"]), float(body["py"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "px and py are required"}), 400
+
+        stamp = capture.frame_time.strftime("%H:%M:%S")
+        point = ControlPoint(
+            name=f"{plane.label} {stamp}", px=px, py=py,
+            lat=plane.lat, lon=plane.lon, elev_m=plane.alt_m,
+            kind=KIND_AIRCRAFT, time=capture.frame_time.isoformat(),
+            delay_s=capture.delay_s, ve=plane.ve, vn=plane.vn, vu=plane.vu,
+            note=(f"{plane.alt_source} altitude, {plane.range_km:.1f} km"
+                  + (" (pressure altitude: can be 100 m+ off)"
+                     if plane.alt_source == "baro" else "")))
+        with state.lock:
+            point_set = state.load_point_set()
+            point_set.add(point)
+            state.save_point_set(point_set)
+        return jsonify({"points": [_point_json(p) for p in point_set.points],
+                        "added": _point_json(point)})
 
     # -- live monitor -------------------------------------------------------
     @app.route("/api/live.jpg")
@@ -492,10 +686,16 @@ def create_app(state: WebState) -> Flask:
 # ---------------------------------------------------------------------------
 
 
+def _opt_float(value):
+    return None if value in (None, "") else float(value)
+
+
 def _point_json(point: ControlPoint) -> dict:
     return {"name": point.name, "px": point.px, "py": point.py,
             "lat": point.lat, "lon": point.lon, "elev_m": point.elev_m,
-            "enabled": point.enabled, "note": point.note}
+            "enabled": point.enabled, "note": point.note,
+            "kind": point.kind, "time": point.time, "delay_s": point.delay_s,
+            "ve": point.ve, "vn": point.vn, "vu": point.vu}
 
 
 def _model_summary(model: CameraModel) -> dict:

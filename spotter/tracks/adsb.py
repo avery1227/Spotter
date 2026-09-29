@@ -56,9 +56,13 @@ def parse_aircraft(entry: dict, now_epoch: float, source: str) -> Optional[Track
     icao = icao.lower().lstrip("~")
 
     # alt_baro is the string "ground" for aircraft on the airport surface.
+    # Prefer the GNSS height: pressure altitude can be 100 m or more off true
+    # height depending on the weather, which is a visible error on screen.
     raw_alt = entry.get("alt_geom")
+    alt_source = "geom"
     if raw_alt is None:
         raw_alt = entry.get("alt_baro")
+        alt_source = "baro"
     on_ground = isinstance(raw_alt, str) and raw_alt.strip().lower() == "ground"
     alt_ft = 0.0 if on_ground else as_float(raw_alt)
     alt_m = None if alt_ft is None else alt_ft * FEET_TO_M
@@ -82,6 +86,7 @@ def parse_aircraft(entry: dict, now_epoch: float, source: str) -> Optional[Track
         "squawk": clean_str(entry.get("squawk")),
         "operator": clean_str(entry.get("ownOp")),
         "on_ground": on_ground,
+        "alt_source": None if raw_alt is None or on_ground else alt_source,
         "military": bool(int(db_flags) & DBFLAG_MILITARY),
         "mlat": bool(entry.get("mlat")),
         "emergency": clean_str(entry.get("emergency")) not in (None, "none"),

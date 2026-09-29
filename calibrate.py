@@ -379,12 +379,16 @@ def cmd_solve(args, cfg) -> int:
               file=sys.stderr)
         return 1
 
+    from spotter.calib.lines import load_lines
+    line_set = load_lines(cfg.path("calibration.lines", "./lines.json"))
+
     print(f"Solving from {len(point_set.active)} active points "
-          f"({len(point_set)} total) at {width}x{height} ...")
+          f"({len(point_set)} total) and {len(line_set.active)} traced lines "
+          f"at {width}x{height} ...")
 
     try:
         result = solve_calibration(point_set, cfg, width, height,
-                                   run_loo=not args.no_loo)
+                                   run_loo=not args.no_loo, lines=line_set)
     except (ValueError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
