@@ -152,6 +152,41 @@ of careful clicking should not be one misclick away from gone.
 The UI has **no authentication**. It binds to localhost by default; only widen
 `web.host` on a network you trust.
 
+### Lines and aircraft
+
+Points are only half the story when the landmarks you can map are all close
+to the camera, or all on the far shore. The calibration page has two more
+kinds of evidence, one tab each, and they all go into the same solve.
+
+**Lines.** Trace a feature in the frame (a seawall, a path edge, the
+waterline, a property divider), then trace the same feature on the map. The
+solver moves the camera until the map line, projected into the frame, lies on
+the traced one. The tracings do not need matching ends; the map tracing just
+has to cover everything traced in the frame. Straight features are what pin
+the lens distortion properly. Give each line its height above sea level, and
+say how sure you are: "exact" for the waterline (enter the tide if you know
+it), otherwise the solver fits the height within the range you gave. Near the
+camera this matters: a metre is about half a degree at 100 m.
+
+Nearby lines fix the camera's position, height and roll very well, but they
+all sit in the lower part of the frame, so on their own they still leave the
+sky to extrapolation. In a synthetic test with a camera like the Westbrook
+one, lines alone put a plane at 16,000 ft 18 px off; adding one light across
+the Sound brought it to under 3 px. Use both.
+
+**Aircraft.** With the pipeline running (`spotter run`), press **Freeze** on
+the Aircraft tab: the next decoded frame is caught, before any overlay is
+drawn on it, together with every aircraft's ADS-B position at that frame's
+timestamp. Click where a plane really is; the page picks the nearest tracked
+aircraft, and you confirm and add it. Repeat with other planes or fresh
+freezes. Planes are the best high control points there are, and each is
+recorded with its velocity, so with two or more on different headings the
+solver also measures how far `stream.encoder_delay_s` is out and tells you
+what to set it to. Capture fresh aircraft points after changing the delay:
+existing ones were positioned with the old value. GNSS altitude is used where
+the feed has it; a plane with only pressure altitude is flagged, since that
+can be 100 m or more off.
+
 ### The OpenCV window instead
 
 ```bash
