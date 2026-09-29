@@ -526,6 +526,15 @@ def test_template_matching_measures_a_known_shift():
     assert second.flagged
     assert detector.flagged
 
+    # A check that cannot match anything (night, fog) proves nothing either
+    # way: the flag stays, and so does the shift it was raised for. This used
+    # to replace it with 0.0, showing "CALIBRATION DRIFT 0.0px".
+    inconclusive = detector.check(np.zeros_like(image), force=True)
+    assert inconclusive.matched_count < 2
+    assert detector.flagged
+    assert detector.shift_px == pytest.approx(np.hypot(7, 4), abs=1.0)
+    assert detector.status()["median_shift_px"] == pytest.approx(np.hypot(7, 4), abs=1.0)
+
     # Returning to normal clears the flag.
     detector.check(image, force=True)
     assert not detector.flagged
