@@ -11,7 +11,7 @@ from spotter.tracks.model import Position, TrackKind, TrackReport
 from spotter.tracks.store import Track, TrackState
 from spotter.web.server import WebState, create_app
 
-from .test_web import REF_LAT, REF_LON, workspace  # noqa: F401  (fixture)
+from .conftest import REF_LAT, REF_LON
 
 FRAME_TIME = datetime(2026, 9, 29, 20, 0, 0, tzinfo=timezone.utc)
 
@@ -57,7 +57,7 @@ class FakePipeline:
 
 
 @pytest.fixture
-def live_client(workspace):  # noqa: F811
+def live_client(workspace):
     state = WebState(workspace, pipeline=FakePipeline())
     app = create_app(state)
     app.config["TESTING"] = True
@@ -66,7 +66,7 @@ def live_client(workspace):  # noqa: F811
 
 
 @pytest.fixture
-def offline_client(workspace):  # noqa: F811
+def offline_client(workspace):
     app = create_app(WebState(workspace))
     app.config["TESTING"] = True
     with app.test_client() as c:
@@ -82,7 +82,7 @@ LINE = {"name": "seawall", "image": [[100, 700], [900, 720], [1700, 760]],
 # Lines
 # ---------------------------------------------------------------------------
 
-def test_lines_crud(offline_client, workspace):  # noqa: F811
+def test_lines_crud(offline_client, workspace):
     client = offline_client
     assert client.get("/api/lines").get_json()["lines"] == []
     res = client.post("/api/lines", json=LINE)
@@ -154,7 +154,7 @@ def test_freeze_returns_frame_and_aircraft(live_client):
     assert live_client.get("/api/freeze/nope.png").status_code == 404
 
 
-def test_freeze_reports_pipeline_problems(workspace):  # noqa: F811
+def test_freeze_reports_pipeline_problems(workspace):
     for error, status in ((TimeoutError("no frame"), 504),
                           (RuntimeError("not started"), 409)):
         app = create_app(WebState(workspace, pipeline=FakePipeline(fail=error)))
